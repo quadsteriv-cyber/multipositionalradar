@@ -7,5 +7,5 @@ python-docx
 matplotlib
 seaborn
 rich
-plotly streamlit
+plotly
 
