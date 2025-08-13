@@ -1,8 +1,7 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v5.0 ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v6.1 ⚽
 #
-# This is the fully converted Streamlit web application. It uses
-# interactive widgets for user input and displays results dynamically.
+# This version includes an expanded list of all requested leagues and seasons.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -30,29 +29,46 @@ st.set_page_config(
 )
 
 # --- 3. CORE & POSITIONAL CONFIGURATIONS ---
-# (This entire section is unchanged from the previous script)
 
 USERNAME = "quadsteriv@gmail.com"
 PASSWORD = "SfORY1xR"
 
-LEAGUE_SEASON_MAP = {
-    1385: 317, # Scottish Championship
-    51: 317,   # Scottish Premiership
-    4: 317,    # English League One
-    5: 317,    # English League Two
-    107: 282,  # LOI Premier Division
-    1442: 282, 78: 317, 260: 317, 1581: 317, 179: 317, 129: 317, 
-    1778: 282, 1848: 317, 1035: 317, 76: 317, 
-    1607: 315, 89: 282, 106: 315
-}
+# NEW: Expanded league and season dictionaries
 LEAGUE_NAMES = {
-    1442: "Norwegian 1. Division", 78: "Croatian 1. HNL", 260: "Danish 1st Division",
-    1581: "Austrian 2. Liga", 179: "German 3. Liga", 129: "French Championnat National",
-    1385: "Scottish Championship", 1778: "Irish First Division", 1848: "Polish I Liga",
-    1035: "Belgian First Division B", 4: "English League One", 5: "English League Two",
-    76: "Belgian First Division A", 107: "LOI Premier Division", 51: "Scottish Premiership",
-    1607: "Icelandic Úrvalsdeild", 89: "USL Championship", 106: "Finnish Veikkausliiga"
+    4: "League One", 5: "League Two", 51: "Premiership", 65: "National League",
+    76: "Liga", 78: "1. HNL", 89: "USL Championship", 106: "Veikkausliiga",
+    107: "Premier Division", 129: "Championnat National", 166: "Premier League 2 Division One",
+    179: "3. Liga", 260: "1st Division", 1035: "First Division B", 1385: "Championship",
+    1442: "1. Division", 1581: "2. Liga", 1607: "Úrvalsdeild", 1778: "First Division",
+    1848: "I Liga", 1865: "First League"
 }
+
+COMPETITION_SEASONS = {
+    # ⚠️ WARNING: Loading all these leagues may crash on Streamlit Cloud.
+    # Comment out leagues you don't need for deployment.
+    4: [1, 4, 42, 90, 108, 235, 281, 317, 318, 351],
+    5: [4, 42, 90, 108, 235, 281, 317, 318, 351],
+    51: [4, 42, 90, 108, 235, 281, 317, 318, 351],
+    65: [281, 318, 351],
+    76: [317, 318, 351],
+    78: [317, 318, 351],
+    89: [91, 106, 107, 282, 315, 316, 355],
+    106: [315, 316, 355],
+    107: [43, 91, 106, 107, 282, 315, 316, 355],
+    129: [317, 318, 351],
+    166: [318, 351],
+    179: [317, 318, 351],
+    260: [317, 318, 351],
+    1035: [317, 318, 351],
+    1385: [235, 281, 317, 318, 351],
+    1442: [107, 282, 315, 316, 355],
+    1581: [317, 318, 351],
+    1607: [315, 316, 355],
+    1778: [282, 315, 316, 355],
+    1848: [281, 317, 318, 351],
+    1865: [318, 351]
+}
+
 # (Archetype and Radar Dictionaries are placed here, exactly as they were in the previous version)
 STRIKER_ARCHETYPES = {
     "Poacher (Fox in the Box)": {
@@ -238,20 +254,22 @@ def load_and_process_data():
     
     # --- Nested Data Functions ---
     def get_all_leagues_data(auth_credentials):
-        """Downloads player statistics from all leagues defined in LEAGUE_SEASON_MAP."""
+        """Downloads player statistics from all leagues defined in COMPETITION_SEASONS."""
         all_dfs = []
-        for league_id, season_id in LEAGUE_SEASON_MAP.items():
-            try:
-                url = f"https://data.statsbombservices.com/api/v1/competitions/{league_id}/seasons/{season_id}/player-stats"
-                response = requests.get(url, auth=auth_credentials)
-                response.raise_for_status()
-                df_league = pd.json_normalize(response.json())
-                df_league['league_name'] = LEAGUE_NAMES.get(league_id, f"League {league_id}")
-                all_dfs.append(df_league)
-            except Exception:
-                continue
+        # MODIFIED: Nested loop to handle multiple seasons per league
+        for league_id, season_ids in COMPETITION_SEASONS.items():
+            for season_id in season_ids:
+                try:
+                    url = f"https://data.statsbombservices.com/api/v1/competitions/{league_id}/seasons/{season_id}/player-stats"
+                    response = requests.get(url, auth=auth_credentials)
+                    response.raise_for_status()
+                    df_league = pd.json_normalize(response.json())
+                    df_league['league_name'] = LEAGUE_NAMES.get(league_id, f"League {league_id}")
+                    all_dfs.append(df_league)
+                except Exception:
+                    continue # Silently skip if a specific season fails
         if not all_dfs:
-            st.error("No league data could be loaded. Check API credentials.")
+            st.error("No league data could be loaded. Check API credentials or league/season IDs.")
             return None
         return pd.concat(all_dfs, ignore_index=True)
 
@@ -332,7 +350,8 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
     if pool_df.empty:
         return pd.DataFrame()
 
-    target_vector = target_player[percentile_metrics].values.reshape(1, -1)
+    # BUG FIX: Fill NaN values in the target player's vector with 50 (median percentile)
+    target_vector = target_player[percentile_metrics].fillna(50).values.reshape(1, -1)
     pool_matrix = pool_df[percentile_metrics].values
     
     weights = np.full(len(key_identity_metrics), key_weight)
@@ -353,7 +372,6 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
         
 def create_enhanced_radar_chart(player_data, reference_player, radar_config):
     """Creates a radar chart figure."""
-    # (This function is unchanged from the previous script)
     plt.style.use('seaborn-v0_8-notebook')
     metrics_dict = radar_config['metrics']
     labels = ['\n'.join(l.split()) for l in metrics_dict.values()]
@@ -392,114 +410,138 @@ def create_enhanced_radar_chart(player_data, reference_player, radar_config):
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(labels, size=10, fontweight='bold')
     
-    ax.set_title(f"{radar_config['name']} | {player_data['player_name']}", size=16, fontweight='bold', y=1.12)
+    title = f"{radar_config['name']} | {player_data['player_name']}"
+    if reference_player is not None:
+        title += f"\nvs. {reference_player['player_name']}"
+    
+    ax.set_title(title, size=16, fontweight='bold', y=1.12)
     ax.legend(loc='upper right', bbox_to_anchor=(1.5, 1.15))
     
     return fig
 
-def create_report_document(target_player, top_matches, other_matches, archetype_dna, search_config, target_radars, comp_radars):
-    """Assembles the final .docx report."""
-    # (This function is also largely unchanged, just adapted for Streamlit)
-    doc = Document()
-    doc.styles['Normal'].font.name = 'Calibri'
-    doc.add_heading(f'{search_config["position"]} {search_config["mode"].title()} Report', 0).alignment = WD_ALIGN_PARAGRAPH.CENTER
-    doc.add_heading(f'Target Player: {target_player["player_name"]}', level=1)
-    
-    age = target_player.get('age'); age_str = f"{int(age)}" if pd.notna(age) else "N/A"
-    doc.add_paragraph(f"**Age:** {age_str} | **Team:** {target_player['team_name']} | **League:** {target_player['league_name']}")
-    
-    doc.add_heading('Archetype DNA & Search Filters', level=2)
-    dna_table = doc.add_table(rows=1, cols=2); dna_table.style = 'Table Grid'
-    # (The rest of the docx generation logic continues here, same as before)
-    
-    return doc
-
 # --- 6. STREAMLIT APP LAYOUT ---
 st.title("⚽ Advanced Multi-Position Player Analysis Tool")
 
-# Load data using the cached function
-processed_data = load_and_process_data()
+with st.spinner("Loading and processing data for all leagues... This may take a moment."):
+    processed_data = load_and_process_data()
 
-if processed_data is not None:
-    # --- Sidebar Controls ---
-    st.sidebar.header("🔍 Search Controls")
-    
-    # 1. Position Selection
-    pos_options = list(POSITIONAL_CONFIGS.keys())
-    selected_pos = st.sidebar.selectbox("1. Select a Position to Analyze", pos_options)
-    
-    # Get config for the selected position
-    config = POSITIONAL_CONFIGS[selected_pos]
-    archetypes = config["archetypes"]
-    radar_metrics = config["radars"]
-    position_pool = processed_data[processed_data['primary_position'].isin(config['positions'])]
-    
-    # 2. Player Name Input
-    player_name_input = st.sidebar.text_input("2. Enter Target Player's Full Name", placeholder="e.g., Harry Kane")
-    
-    # 3. Search Mode
-    search_mode = st.sidebar.radio("3. Select Search Mode", ('Find Similar Players', 'Find Potential Upgrades'), key='search_mode')
-    search_mode_logic = 'upgrade' if search_mode == 'Find Potential Upgrades' else 'similar'
+if 'analysis_run' not in st.session_state:
+    st.session_state.analysis_run = False
 
-    # --- Analysis Trigger ---
-    if st.sidebar.button("Analyze Player", type="primary"):
-        target_player, suggestions = find_player_by_name(processed_data, player_name_input)
+scouting_tab, comparison_tab = st.tabs(["Scouting Analysis", "Direct Comparison"])
+
+with scouting_tab:
+    if processed_data is not None:
+        st.sidebar.header("🔍 Scouting Controls")
         
-        if target_player is not None:
-            st.session_state.target_player = target_player
-            st.session_state.suggestions = None
-
-            detected_archetype, dna_df = detect_player_archetype(target_player, archetypes)
-            st.session_state.detected_archetype = detected_archetype
-            st.session_state.dna_df = dna_df
-
-            archetype_config = archetypes[detected_archetype]
-            matches = find_matches(target_player, position_pool, archetype_config, search_mode_logic)
-            st.session_state.matches = matches
-        else:
-            st.session_state.target_player = None
-            st.session_state.matches = None
-            st.session_state.suggestions = suggestions
-
-    # --- Main Panel Display ---
-    if 'target_player' in st.session_state and st.session_state.target_player is not None:
-        tp = st.session_state.target_player
-        dna_df = st.session_state.dna_df
-        matches = st.session_state.matches
-
-        st.header(f"Analysis for: {tp['player_name']}")
-        st.subheader(f"Detected Archetype: {st.session_state.detected_archetype}")
+        pos_options = list(POSITIONAL_CONFIGS.keys())
+        selected_pos = st.sidebar.selectbox("1. Select a Position to Analyze", pos_options, key="scout_pos")
         
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.dataframe(dna_df, hide_index=True)
-        with col2:
-            st.write(f"**Description**: {archetypes[st.session_state.detected_archetype]['description']}")
-
-        st.subheader(f"Top 10 Matches ({search_mode})")
+        config = POSITIONAL_CONFIGS[selected_pos]
+        archetypes = config["archetypes"]
+        position_pool = processed_data[processed_data['primary_position'].isin(config['positions'])]
         
-        if not matches.empty:
-            display_cols = ['player_name', 'age', 'team_name', 'league_name']
-            if search_mode_logic == 'upgrade':
-                display_cols.insert(2, 'upgrade_score')
-                matches['upgrade_score'] = matches['upgrade_score'].round(1)
+        player_name_input = st.sidebar.text_input("2. Enter Target Player's Full Name", placeholder="e.g., Harry Kane", key="scout_player")
+        
+        search_mode = st.sidebar.radio("3. Select Search Mode", ('Find Similar Players', 'Find Potential Upgrades'), key='scout_mode')
+        search_mode_logic = 'upgrade' if search_mode == 'Find Potential Upgrades' else 'similar'
+
+        if st.sidebar.button("Analyze Player", type="primary", key="scout_analyze"):
+            st.session_state.analysis_run = True
+            target_player, suggestions = find_player_by_name(processed_data, player_name_input)
+            
+            if target_player is not None:
+                st.session_state.target_player = target_player
+                st.session_state.suggestions = None
+                detected_archetype, dna_df = detect_player_archetype(target_player, archetypes)
+                st.session_state.detected_archetype = detected_archetype
+                st.session_state.dna_df = dna_df
+                archetype_config = archetypes[detected_archetype]
+                matches = find_matches(target_player, position_pool, archetype_config, search_mode_logic)
+                st.session_state.matches = matches
             else:
-                display_cols.insert(2, 'similarity_score')
-                matches['similarity_score'] = matches['similarity_score'].round(1)
-            
-            st.dataframe(matches.head(10)[display_cols].rename(columns=lambda c: c.replace('_', ' ').title()), hide_index=True)
-            
-            # TODO: Add logic for DocX report generation and download button here
-            
+                st.session_state.target_player = None
+                st.session_state.matches = None
+                st.session_state.suggestions = suggestions
+
+        if st.session_state.analysis_run:
+            if 'target_player' in st.session_state and st.session_state.target_player is not None:
+                tp = st.session_state.target_player
+                dna_df = st.session_state.dna_df
+                matches = st.session_state.matches
+
+                st.header(f"Analysis for: {tp['player_name']}")
+                st.subheader(f"Detected Archetype: {st.session_state.detected_archetype}")
+                
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.dataframe(dna_df.reset_index(drop=True), hide_index=True)
+                with col2:
+                    st.write(f"**Description**: {archetypes[st.session_state.detected_archetype]['description']}")
+
+                st.subheader(f"Top 10 Matches ({search_mode})")
+                if not matches.empty:
+                    display_cols = ['player_name', 'age', 'team_name', 'league_name']
+                    score_col = 'upgrade_score' if search_mode_logic == 'upgrade' else 'similarity_score'
+                    display_cols.insert(2, score_col)
+                    
+                    matches_display = matches.head(10)[display_cols].copy()
+                    matches_display[score_col] = matches_display[score_col].round(1)
+                    st.dataframe(matches_display.rename(columns=lambda c: c.replace('_', ' ').title()), hide_index=True)
+                else:
+                    st.warning("No players found matching the criteria.")
+                    
+            elif 'suggestions' in st.session_state and st.session_state.suggestions is not None:
+                st.warning(f"Player '{player_name_input}' not found. Did you mean one of these?")
+                for p in st.session_state.suggestions:
+                    st.write(f"- {p['player_name']} ({p['team_name']})")
         else:
-            st.warning("No players found matching the criteria.")
+            st.info("Select a position and enter a player's name in the sidebar to begin analysis.")
             
-    elif 'suggestions' in st.session_state and st.session_state.suggestions is not None:
-        st.warning(f"Player '{player_name_input}' not found. Did you mean one of these?")
-        for p in st.session_state.suggestions:
-            st.write(f"- {p['player_name']} ({p['team_name']})")
-    else:
-        st.info("Select a position and enter a player's name in the sidebar to begin analysis.")
-    
+with comparison_tab:
+    st.header("Player vs. Player Direct Comparison")
+
+    if processed_data is not None:
+        leagues_and_seasons = processed_data[['league_name', 'season_name']].drop_duplicates().sort_values(by=['league_name', 'season_name'])
+        leagues = leagues_and_seasons['league_name'].unique()
+
+        def player_selector(player_num):
+            st.subheader(f"Player {player_num}")
+            league = st.selectbox(f"Select League", leagues, key=f"league_{player_num}", index=None, placeholder="Choose a league")
+            if league:
+                seasons = leagues_and_seasons[leagues_and_seasons['league_name'] == league]['season_name'].unique()
+                season = st.selectbox("Select Season", seasons, key=f"season_{player_num}")
+                if season:
+                    players = processed_data[(processed_data['league_name'] == league) & (processed_data['season_name'] == season)]['player_name'].dropna().unique()
+                    player_name = st.selectbox("Select Player", sorted(players), key=f"player_{player_num}", index=None, placeholder="Choose a player")
+                    if player_name:
+                        return processed_data[(processed_data['player_name'] == player_name) & (processed_data['season_name'] == season)].iloc[0]
+            return None
+
+        col1, col2 = st.columns(2)
+        with col1:
+            player1_data = player_selector(1)
+        with col2:
+            player2_data = player_selector(2)
+        
+        st.divider()
+
+        if player1_data is not None and player2_data is not None:
+            st.subheader("Radar Comparison")
+            
+            radar_pos_options = list(POSITIONAL_CONFIGS.keys())
+            selected_radar_pos = st.selectbox("Select Radar Set to Use for Comparison", radar_pos_options)
+            
+            radars_to_show = POSITIONAL_CONFIGS[selected_radar_pos]['radars']
+            
+            num_radars = len(radars_to_show)
+            cols = st.columns(num_radars)
+            
+            for i, (radar_name, radar_config) in enumerate(radars_to_show.items()):
+                with cols[i]:
+                    fig = create_enhanced_radar_chart(player1_data, player2_data, radar_config)
+                    st.pyplot(fig)
+        else:
+            st.info("Select two players above to generate a comparison.") 
     
     
