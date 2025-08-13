@@ -1,7 +1,7 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v9.3 (Fixed) ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v9.4 (FIXED) ⚽
 #
-# This version fixes the radar chart display issue and removes min percentile thresholds.
+# This version fixes the radar chart display issue and data loading problems.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -278,9 +278,83 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
 
 # --- 4. DATA HANDLING & ANALYSIS FUNCTIONS (CACHED) ---
 
+@st.cache_resource(ttl=3600)
+def get_all_leagues_data(_auth_credentials):
+    """Downloads player statistics from all leagues with improved error handling."""
+    all_dfs = []
+    successful_loads = 0
+    failed_loads = 0
+    
+    try:
+        # Test authentication first
+        test_url = "https://data.statsbombservices.com/api/v4/competitions"
+        test_response = requests.get(test_url, auth=_auth_credentials, timeout=30)
+        test_response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Authentication failed. Please check your username and password. Error: {e}")
+        return None
+    
+    # Progress tracking
+    total_requests = sum(len(season_ids) for season_ids in COMPETITION_SEASONS.values())
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    current_request = 0
+    
+    for league_id, season_ids in COMPETITION_SEASONS.items():
+        league_name = LEAGUE_NAMES.get(league_id, f"League {league_id}")
+        
+        for season_id in season_ids:
+            current_request += 1
+            progress = current_request / total_requests
+            progress_bar.progress(progress)
+            status_text.text(f"Loading {league_name} (Season {season_id})... {current_request}/{total_requests}")
+            
+            try:
+                url = f"https://data.statsbombservices.com/api/v1/competitions/{league_id}/seasons/{season_id}/player-stats"
+                response = requests.get(url, auth=_auth_credentials, timeout=60)
+                response.raise_for_status()
+                
+                data = response.json()
+                if not data:
+                    failed_loads += 1
+                    continue
+                    
+                df_league = pd.json_normalize(data)
+                if df_league.empty:
+                    failed_loads += 1
+                    continue
+                
+                df_league['league_name'] = league_name
+                df_league['competition_id'] = league_id
+                df_league['season_id'] = season_id
+                all_dfs.append(df_league)
+                successful_loads += 1
+                
+            except Exception:
+                failed_loads += 1
+                continue
+    
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
+    
+    if not all_dfs:
+        st.error("Could not load any data from the API. Please check your internet connection and API credentials.")
+        return None
+    
+    st.success(f"Successfully loaded data from {successful_loads} league/season combinations.")
+    
+    try:
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        return combined_df
+    except Exception as e:
+        st.error(f"Error combining datasets: {e}")
+        return None
+
 @st.cache_data(ttl=3600)
 def process_data(_raw_data):
-    """Processes the raw data to calculate ages and percentiles - FIXED VERSION."""
+    """Processes the raw data to calculate ages and percentiles."""
     if _raw_data is None:
         return None
 
@@ -307,8 +381,8 @@ def process_data(_raw_data):
     if 'padj_tackles_90' in df_processed.columns and 'padj_interceptions_90' in df_processed.columns:
         df_processed['padj_tackles_and_interceptions_90'] = df_processed['padj_tackles_90'] + df_processed['padj_interceptions_90']
     
-    # --- FIXED: Global Percentile Calculation (like your working version) ---
-    # Calculate percentiles across ALL players, not just by position
+    # --- Global Percentile Calculation (FIXED) ---
+    # Calculate percentiles across ALL players for consistency
     for metric in ALL_METRICS_TO_PERCENTILE:
         if metric in df_processed.columns:
             metric_data = df_processed[metric]
@@ -320,19 +394,6 @@ def process_data(_raw_data):
                     df_processed[pct_col] = 100 - (metric_data.rank(pct=True) * 100)
                 else:
                     df_processed[pct_col] = metric_data.rank(pct=True) * 100
-    
-    # Optional: Also calculate position-specific percentiles with different column names
-    for pos_group, config in POSITIONAL_CONFIGS.items():
-        pos_mask = df_processed['primary_position'].isin(config['positions'])
-        if pos_mask.sum() > 0:  # Only if we have players in this position
-            for metric in ALL_METRICS_TO_PERCENTILE:
-                if metric in df_processed.columns:
-                    metric_data = df_processed.loc[pos_mask, metric]
-                    if pd.api.types.is_numeric_dtype(metric_data) and not metric_data.empty:
-                        pct_col = f'{metric}_pct_{pos_group.lower().replace(" ", "_")}'
-                        negative_stats = ['turnovers_90', 'dispossessions_90', 'dribbled_past_90', 'fouls_90']
-                        ranks = metric_data.rank(pct=True) * 100
-                        df_processed.loc[pos_mask, pct_col] = 100 - ranks if metric in negative_stats else ranks
     
     # Final cleaning of metric columns
     metric_cols = [col for col in df_processed.columns if '_90' in col or '_ratio' in col or 'length' in col]
@@ -408,7 +469,7 @@ def create_comparison_radar_chart(players_data, radar_config):
     ax.set_facecolor('#121212')
 
     def get_percentiles(player, metrics):
-        """Get percentile values - using the WORKING approach from your second code"""
+        """Get percentile values - using the WORKING approach"""
         # This is the key fix - use .get() method like in your working version
         values = [player.get(f'{m}_pct', 0) for m in metrics.keys()]
         values += values[:1]  # Close the radar chart
@@ -438,7 +499,6 @@ def create_comparison_radar_chart(players_data, radar_config):
 
     return fig
 
-
 # --- 6. STREAMLIT APP LAYOUT ---
 st.title("⚽ Advanced Multi-Position Player Analysis Tool")
 
@@ -449,12 +509,19 @@ if 'comparison_players' not in st.session_state:
 if "comp_selections" not in st.session_state:
     st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
 
-with st.spinner("Loading and processing data for all leagues... This may take a moment."):
-    raw_data = get_all_leagues_data((USERNAME, PASSWORD))
-    if raw_data is not None:
-        processed_data = process_data(raw_data)
-    else:
-        processed_data = None
+# Main data loading with error handling
+processed_data = None
+raw_data = None
+
+try:
+    with st.spinner("Loading and processing data for all leagues... This may take a moment."):
+        raw_data = get_all_leagues_data((USERNAME, PASSWORD))
+        if raw_data is not None:
+            processed_data = process_data(raw_data)
+        else:
+            st.error("Failed to load data. Please check your API credentials and internet connection.")
+except Exception as e:
+    st.error(f"An error occurred while loading data: {e}")
 
 scouting_tab, comparison_tab = st.tabs(["Scouting Analysis", "Direct Comparison"])
 
