@@ -1,8 +1,7 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v9.0 ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v9.3 (Final) ⚽
 #
-# This version fixes a ValueError during data loading by correcting
-# the function call to expect a single return value.
+# This version contains the final, user-verified positional groupings.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -30,6 +29,10 @@ st.set_page_config(
 USERNAME = "quadsteriv@gmail.com"
 PASSWORD = "SfORY1xR"
 
+EXCLUDED_TEAMS_SEASONS = {
+    'St. Johnstone': ['2024/2025']
+}
+
 LEAGUE_NAMES = {
     4: "League One", 5: "League Two", 51: "Premiership", 65: "National League",
     76: "Liga", 78: "1. HNL", 89: "USL Championship", 106: "Veikkausliiga",
@@ -39,7 +42,6 @@ LEAGUE_NAMES = {
     1848: "I Liga", 1865: "First League"
 }
 
-# Refined list of seasons from 2022/23 to 2025/26
 COMPETITION_SEASONS = {
     4: [235, 281, 317, 318],
     5: [235, 281, 317, 318],
@@ -240,13 +242,27 @@ CB_RADAR_METRICS = {
     'defensive_positioning': { 'name': 'Defensive Positioning', 'color': '#00BCD4', 'metrics': {'padj_interceptions_90': 'PAdj Interceptions', 'dribbled_past_90': 'Times Dribbled Past p90', 'pressure_regains_90': 'Pressure Regains'} },
     'on_ball_security': { 'name': 'On-Ball Security', 'color': '#607D8B', 'metrics': {'turnovers_90': 'Ball Security (Inv)', 'op_xgbuildup_90': 'xG Buildup p90', 'fouls_90': 'Fouls Committed'} }
 }
+
+# FINALIZED: Corrected positional groupings based on user feedback
 POSITIONAL_CONFIGS = {
-    "Fullback": {"archetypes": FULLBACK_ARCHETYPES, "radars": FULLBACK_RADAR_METRICS, "positions": ['Right Back', 'Left Back', 'Right Wing Back', 'Left Wing Back']},
-    "Center Back": {"archetypes": CB_ARCHETYPES, "radars": CB_RADAR_METRICS, "positions": ['Center Back', 'Left Centre Back', 'Right Centre Back']},
-    "Center Midfielder": {"archetypes": CM_ARCHETYPES, "radars": CM_RADAR_METRICS, "positions": ['Defensive Midfield', 'Center Defensive Midfield', 'Center Midfield', 'Right Centre Midfielder', 'Left Centre Midfielder']},
-    "Winger": {"archetypes": WINGER_ARCHETYPES, "radars": WINGER_RADAR_METRICS, "positions": ['Right Wing', 'Left Wing', 'Right Midfield', 'Left Midfield']},
-    "Striker": {"archetypes": STRIKER_ARCHETYPES, "radars": STRIKER_RADAR_METRICS, "positions": ['Attacking Midfield', 'Center Forward', 'Secondary Striker']}
+    "Fullback": {"archetypes": FULLBACK_ARCHETYPES, "radars": FULLBACK_RADAR_METRICS, "positions": 
+                 ['Right Back', 'Left Back', 'Right Wing Back', 'Left Wing Back']},
+    "Center Back": {"archetypes": CB_ARCHETYPES, "radars": CB_RADAR_METRICS, "positions": 
+                    ['Center Back', 'Left Centre Back', 'Right Centre Back']},
+    "Center Midfielder": {"archetypes": CM_ARCHETYPES, "radars": CM_RADAR_METRICS, "positions": [
+        'Defensive Midfield', 'Center Defensive Midfield', 'Center Midfield',
+        'Right Centre Midfielder', 'Left Centre Midfielder', 'Left Defensive Midfielder',
+        'Right Defensive Midfielder', 'Centre Attacking Midfielder', 'Attacking Midfield'
+    ]},
+    "Winger": {"archetypes": WINGER_ARCHETYPES, "radars": WINGER_RADAR_METRICS, "positions": [
+        'Right Wing', 'Left Wing', 'Right Midfield', 'Left Midfield', 
+        'Left Attacking Midfielder', 'Right Attacking Midfielder'
+    ]},
+    "Striker": {"archetypes": STRIKER_ARCHETYPES, "radars": STRIKER_RADAR_METRICS, "positions": [
+        'Center Forward', 'Secondary Striker', 'Left Centre Forward', 'Right Centre Forward'
+    ]}
 }
+
 ALL_METRICS_TO_PERCENTILE = sorted(list(set(
     metric for pos_config in POSITIONAL_CONFIGS.values()
     for archetype in pos_config['archetypes'].values() for metric in archetype['identity_metrics']
@@ -412,7 +428,7 @@ def create_comparison_radar_chart(players_data, radar_config):
     ax.set_ylim(0, 100)
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(labels, size=9, color='white')
-    ax.set_rgrids([20, 40, 60, 80], color='gray')
+    ax.set_rgrids([20, 40, 60, 80], color='gray', linestyle='--')
     ax.set_title(radar_config['name'], size=16, weight='bold', y=1.12, color='white')
     ax.legend(loc='upper right', bbox_to_anchor=(1.6, 1.15), labelcolor='white', fontsize=10)
 
@@ -497,12 +513,10 @@ with scouting_tab:
         pos_options = list(POSITIONAL_CONFIGS.keys())
         selected_pos = st.sidebar.selectbox("1. Select a Position to Analyze", pos_options, key="scout_pos")
         
-        # New optional filter toggle
         filter_by_pos = st.sidebar.checkbox("Filter player list by selected position", value=True, key="pos_filter_toggle")
         
         st.sidebar.subheader("Select Target Player")
         
-        # Conditionally pass the position filter
         pos_filter_arg = selected_pos if filter_by_pos else None
         target_player = create_player_filter_ui(processed_data, key_prefix="scout", pos_filter=pos_filter_arg)
         
