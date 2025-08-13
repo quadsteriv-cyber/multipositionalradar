@@ -1,8 +1,7 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v9.6 (Final) ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v9.4 (FIXED) ⚽
 #
-# This version restores the original radar chart metric configurations
-# for all positions as requested by the user.
+# This version fixes the radar chart display issue and data loading problems.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -63,83 +62,207 @@ COMPETITION_SEASONS = {
     1865: [318]
 }
 
-# --- UNIFIED RADAR METRICS (FROM ORIGINAL SCRIPT) ---
-# This single dictionary will now be used for ALL positions to ensure consistency.
-UNIFIED_RADAR_METRICS = {
-    'attacking_output': {
-        'name': 'Attacking Output', 'color': '#D32F2F', 'metrics': {
-            'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG',
-            'np_shots_90': 'Shots p90', 'touches_inside_box_90': 'Touches in Box p90',
-            'conversion_ratio': 'Shot Conversion %', 'np_xg_per_shot': 'Avg. Shot Quality'
-        }
+# Archetype definitions (removed min_percentile_threshold)
+STRIKER_ARCHETYPES = {
+    "Poacher (Fox in the Box)": {
+        "description": "Clinical finisher, thrives in the penalty area, instinctive movement, minimal involvement in build-up.",
+        "identity_metrics": ['npg_90', 'np_xg_90', 'conversion_ratio', 'touches_inside_box_90', 'shot_touch_ratio', 'np_xg_per_shot'],
+        "key_weight": 1.7
     },
-    'passing_creation': {
-        'name': 'Passing & Creation', 'color': '#FF6B35', 'metrics': {
-            'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90',
-            'op_passes_into_box_90': 'Passes into Box p90', 'through_balls_90': 'Through Balls p90',
-            'op_xgbuildup_90': 'xG Buildup p90', 'passing_ratio': 'Pass Completion %'
-        }
+    "Target Man": {
+        "description": "Strong aerial presence, holds up the ball, physical dominance.",
+        "identity_metrics": ['aerial_wins_90', 'aerial_ratio', 'fouls_won_90', 'op_xgbuildup_90', 'touches_inside_box_90', 'passes_into_box_90'],
+        "key_weight": 1.6
     },
-    'dribbling_progression': {
-        'name': 'Dribbling & Progression', 'color': '#9C27B0', 'metrics': {
-            'dribbles_90': 'Successful Dribbles p90', 'dribble_ratio': 'Dribble Success %',
-            'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length',
-            'deep_progressions_90': 'Deep Progressions p90', 'fouls_won_90': 'Fouls Won p90'
-        }
+    "Complete Forward": {
+        "description": "Well-rounded—good finishing, dribbling, link-up, and movement.",
+        "identity_metrics": ['npg_90', 'key_passes_90', 'dribbles_90', 'deep_progressions_90', 'op_xgbuildup_90', 'aerial_wins_90'],
+        "key_weight": 1.6
     },
-    'crossing': {
-        'name': 'Crossing Profile', 'color': '#00BCD4', 'metrics': {
-            'crosses_90': 'Completed Crosses p90', 'crossing_ratio': 'Cross Completion %',
-            'box_cross_ratio': '% of Box Passes that are Crosses', 'sp_passes_into_box_90': 'Set Piece Passes into Box',
-            'op_passes_into_box_90': 'Open Play Passes into Box', 'sp_assists_90': 'Set-Piece Assists p90'
-        }
+    "False 9": {
+        "description": "Drops deep into midfield, playmaker-like vision, technical excellence.",
+        "identity_metrics": ['op_xgbuildup_90', 'key_passes_90', 'through_balls_90', 'dribbles_90', 'carries_90', 'xa_90'],
+        "key_weight": 1.5
     },
-    'defensive_work': {
-        'name': 'Pressing & Defensive Work', 'color': '#4CAF50', 'metrics': {
-            'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90',
-            'counterpressures_90': 'Counterpressures p90', 'padj_tackles_90': 'P.Adj Tackles p90',
-            'padj_interceptions_90': 'P.Adj Interceptions p90', 'aggressive_actions_90': 'Aggressive Actions p90'
-        }
+    "Advanced Forward": {
+        "description": "Prioritizes runs in behind, thrives on through balls, pace-driven.",
+        "identity_metrics": ['deep_progressions_90', 'through_balls_90', 'np_shots_90', 'touches_inside_box_90', 'npg_90', 'np_xg_90'],
+        "key_weight": 1.6
     },
-    'physical': {
-        'name': 'Physical Profile', 'color': '#607D8B', 'metrics': {
-            'aerial_wins_90': 'Aerial Duels Won p90', 'aerial_ratio': 'Aerial Win %',
-            'challenge_ratio': 'Defensive Duel Win %', 'fouls_90': 'Fouls Committed p90',
-            'turnovers_90': 'Turnovers p90 (Ball Security)', 'dribbled_past_90': 'Times Dribbled Past p90'
-        }
+    "Pressing Forward": {
+        "description": "Defensive work rate, triggers press, harasses defenders.",
+        "identity_metrics": ['pressures_90', 'pressure_regains_90', 'counterpressures_90', 'aggressive_actions_90', 'padj_tackles_90', 'fouls_90'],
+        "key_weight": 1.5
+    },
+    "Second Striker (Support Striker)": {
+        "description": "Operates just behind main striker, creative link, dribbler.",
+        "identity_metrics": ['dribbles_90', 'key_passes_90', 'xa_90', 'touches_inside_box_90', 'npg_90', 'carries_90'],
+        "key_weight": 1.5
+    },
+    "Deep-Lying Forward": {
+        "description": "Drops into midfield to orchestrate play, but still a striker.",
+        "identity_metrics": ['op_xgbuildup_90', 'key_passes_90', 'long_balls_90', 'through_balls_90', 'carries_90', 'passing_ratio'],
+        "key_weight": 1.5
+    },
+    "Wide Forward": {
+        "description": "Starts wide but cuts inside; often part of a front two or fluid front three.",
+        "identity_metrics": ['dribbles_90', 'crosses_90', 'deep_progressions_90', 'touches_inside_box_90', 'npg_90', 'np_shots_90'],
+        "key_weight": 1.6
     }
 }
 
-# Archetype definitions remain unchanged
-STRIKER_ARCHETYPES = {
-    "Poacher (Fox in the Box)": {"description": "Clinical finisher...", "identity_metrics": ['npg_90', 'np_xg_90', 'conversion_ratio', 'touches_inside_box_90', 'shot_touch_ratio', 'np_xg_per_shot'], "key_weight": 1.7},
-    "Target Man": {"description": "Strong aerial presence...", "identity_metrics": ['aerial_wins_90', 'aerial_ratio', 'fouls_won_90', 'op_xgbuildup_90', 'touches_inside_box_90', 'passes_into_box_90'], "key_weight": 1.6},
-    "Complete Forward": {"description": "Well-rounded...", "identity_metrics": ['npg_90', 'key_passes_90', 'dribbles_90', 'deep_progressions_90', 'op_xgbuildup_90', 'aerial_wins_90'], "key_weight": 1.6},
-    "False 9": {"description": "Drops deep into midfield...", "identity_metrics": ['op_xgbuildup_90', 'key_passes_90', 'through_balls_90', 'dribbles_90', 'carries_90', 'xa_90'], "key_weight": 1.5},
-    "Advanced Forward": {"description": "Prioritizes runs in behind...", "identity_metrics": ['deep_progressions_90', 'through_balls_90', 'np_shots_90', 'touches_inside_box_90', 'npg_90', 'np_xg_90'], "key_weight": 1.6},
-    "Pressing Forward": {"description": "Defensive work rate...", "identity_metrics": ['pressures_90', 'pressure_regains_90', 'counterpressures_90', 'aggressive_actions_90', 'padj_tackles_90', 'fouls_90'], "key_weight": 1.5},
-    "Second Striker (Support Striker)": {"description": "Operates just behind...", "identity_metrics": ['dribbles_90', 'key_passes_90', 'xa_90', 'touches_inside_box_90', 'npg_90', 'carries_90'], "key_weight": 1.5},
-    "Deep-Lying Forward": {"description": "Drops into midfield...", "identity_metrics": ['op_xgbuildup_90', 'key_passes_90', 'long_balls_90', 'through_balls_90', 'carries_90', 'passing_ratio'], "key_weight": 1.5},
-    "Wide Forward": {"description": "Starts wide but cuts inside...", "identity_metrics": ['dribbles_90', 'crosses_90', 'deep_progressions_90', 'touches_inside_box_90', 'npg_90', 'np_shots_90'], "key_weight": 1.6}
+STRIKER_RADAR_METRICS = {
+    'finishing': { 'name': 'Finishing', 'color': '#D32F2F', 'metrics': {'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG', 'np_shots_90': 'Shots p90', 'conversion_ratio': 'Shot Conversion %', 'np_xg_per_shot': 'Avg. Shot Quality'} },
+    'box_presence': { 'name': 'Box Presence', 'color': '#AF1D1D', 'metrics': {'touches_inside_box_90': 'Touches in Box p90', 'passes_inside_box_90': 'Passes in Box p90', 'positive_outcome_90': 'Positive Outcomes p90'} },
+    'creation': { 'name': 'Creation & Link-Up', 'color': '#FF6B35', 'metrics': {'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90', 'op_passes_into_box_90': 'Passes into Box p90', 'through_balls_90': 'Through Balls p90', 'op_xgbuildup_90': 'xG Buildup p90'} },
+    'dribbling': { 'name': 'Dribbling & Carrying', 'color': '#9C27B0', 'metrics': {'dribbles_90': 'Successful Dribbles p90', 'dribble_ratio': 'Dribble Success %', 'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length', 'turnovers_90': 'Ball Security (Inv)'} },
+    'aerial': { 'name': 'Aerial Prowess', 'color': '#607D8B', 'metrics': {'aerial_wins_90': 'Aerial Duels Won p90', 'aerial_ratio': 'Aerial Win %', 'fouls_won_90': 'Fouls Won p90'} },
+    'defensive': { 'name': 'Defensive Contribution', 'color': '#4CAF50', 'metrics': {'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90', 'counterpressures_90': 'Counterpressures p90', 'aggressive_actions_90': 'Aggressive Actions'} }
 }
-WINGER_ARCHETYPES = {"Goal-Scoring Winger": {"description": "A winger focused on...","identity_metrics": ['npg_90', 'np_xg_90', 'np_shots_90', 'touches_inside_box_90', 'np_xg_per_shot', 'dribbles_90'],"key_weight": 1.6},"Creative Playmaker": {"description": "A winger who creates...","identity_metrics": ['xa_90', 'key_passes_90', 'op_passes_into_box_90', 'through_balls_90', 'op_xgbuildup_90', 'deep_progressions_90'],"key_weight": 1.5},"Traditional Winger": {"description": "Focuses on providing width...","identity_metrics": ['crosses_90', 'crossing_ratio', 'dribbles_90', 'carry_length', 'deep_progressions_90', 'fouls_won_90'],"key_weight": 1.5}}
-CM_ARCHETYPES = {"Deep-Lying Playmaker (Regista)": {"description": "Dictates tempo...","identity_metrics": ['op_xgbuildup_90', 'long_balls_90', 'long_ball_ratio', 'forward_pass_proportion', 'passing_ratio', 'through_balls_90'],"key_weight": 1.6},"Box-to-Box Midfielder (B2B)": {"description": "Covers large vertical space...","identity_metrics": ['deep_progressions_90', 'carries_90', 'padj_tackles_and_interceptions_90', 'pressures_90', 'npg_90', 'touches_inside_box_90'],"key_weight": 1.6},"Ball-Winning Midfielder (Destroyer)": {"description": "Breaks up play...","identity_metrics": ['padj_tackles_90', 'padj_interceptions_90', 'pressure_regains_90', 'challenge_ratio', 'aggressive_actions_90', 'fouls_90'],"key_weight": 1.6},"Advanced Playmaker (Mezzala)": {"description": "Operates in half-spaces...","identity_metrics": ['xa_90', 'key_passes_90', 'op_passes_into_box_90', 'through_balls_90', 'dribbles_90', 'np_shots_90'],"key_weight": 1.5},"Transition Midfielder (Tempo Carrier)": {"description": "Drives forward...","identity_metrics": ['carries_90', 'carry_length', 'dribbles_90', 'dribble_ratio', 'deep_progressions_90', 'fouls_won_90'],"key_weight": 1.5},"Holding Midfielder (Anchor)": {"description": "Protects the backline...","identity_metrics": ['padj_interceptions_90', 'passing_ratio', 'op_xgbuildup_90', 'pressures_90', 'challenge_ratio', 'turnovers_90'],"key_weight": 1.5},"Attacking Midfielder (8.5 Role)": {"description": "Focused on final-third...","identity_metrics": ['npg_90', 'np_xg_90', 'xa_90', 'key_passes_90', 'touches_inside_box_90', 'np_shots_90'],"key_weight": 1.6}}
-FULLBACK_ARCHETYPES = {"Attacking Fullback": {"description": "High attacking output...","identity_metrics": ['xa_90', 'crosses_90', 'op_passes_into_box_90', 'deep_progressions_90', 'key_passes_90', 'op_xgbuildup_90'],"key_weight": 1.5},"Defensive Fullback": {"description": "Solid defensive foundation...","identity_metrics": ['padj_tackles_and_interceptions_90', 'challenge_ratio', 'aggressive_actions_90', 'pressures_90', 'aerial_wins_90', 'aerial_ratio'],"key_weight": 1.5},"Modern Wingback": {"description": "High energy player...","identity_metrics": ['deep_progressions_90', 'crosses_90', 'dribbles_90', 'padj_tackles_and_interceptions_90', 'pressures_90', 'xa_90'],"key_weight": 1.6}}
-CB_ARCHETYPES = {"Ball-Playing Defender": {"description": "Comfortable in possession...","identity_metrics": ['op_xgbuildup_90', 'passing_ratio', 'long_balls_90', 'long_ball_ratio', 'forward_pass_proportion', 'carries_90'],"key_weight": 1.5},"Stopper": {"description": "Aggressive defender...","identity_metrics": ['aggressive_actions_90', 'padj_tackles_90', 'challenge_ratio', 'pressures_90', 'aerial_wins_90', 'fouls_90'],"key_weight": 1.6},"Covering Defender": {"description": "Reads the game well...","identity_metrics": ['padj_interceptions_90', 'padj_clearances_90', 'dribbled_past_90', 'pressure_regains_90', 'aerial_ratio', 'passing_ratio'],"key_weight": 1.5}}
 
+WINGER_ARCHETYPES = {
+    "Goal-Scoring Winger": {
+        "description": "A winger focused on cutting inside to shoot and score goals.",
+        "identity_metrics": ['npg_90', 'np_xg_90', 'np_shots_90', 'touches_inside_box_90', 'np_xg_per_shot', 'dribbles_90'],
+        "key_weight": 1.6
+    },
+    "Creative Playmaker": {
+        "description": "A winger who creates chances for others through key passes and assists.",
+        "identity_metrics": ['xa_90', 'key_passes_90', 'op_passes_into_box_90', 'through_balls_90', 'op_xgbuildup_90', 'deep_progressions_90'],
+        "key_weight": 1.5
+    },
+    "Traditional Winger": {
+        "description": "Focuses on providing width, dribbling down the line, and delivering crosses.",
+        "identity_metrics": ['crosses_90', 'crossing_ratio', 'dribbles_90', 'carry_length', 'deep_progressions_90', 'fouls_won_90'],
+        "key_weight": 1.5
+    }
+}
+
+WINGER_RADAR_METRICS = {
+    'goal_threat': { 'name': 'Goal Threat', 'color': '#D32F2F', 'metrics': {'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG', 'np_shots_90': 'Shots p90', 'touches_inside_box_90': 'Touches in Box p90', 'conversion_ratio': 'Shot Conversion %', 'np_xg_per_shot': 'Avg. Shot Quality'} },
+    'creation': { 'name': 'Chance Creation', 'color': '#FF6B35', 'metrics': {'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90', 'op_passes_into_box_90': 'Passes into Box p90', 'through_balls_90': 'Through Balls p90', 'op_xgbuildup_90': 'xG Buildup p90', 'passing_ratio': 'Pass Completion %'} },
+    'progression': { 'name': 'Dribbling & Progression', 'color': '#9C27B0', 'metrics': {'dribbles_90': 'Successful Dribbles p90', 'dribble_ratio': 'Dribble Success %', 'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length', 'deep_progressions_90': 'Deep Progressions p90', 'fouls_won_90': 'Fouls Won p90'} },
+    'crossing': { 'name': 'Crossing Profile', 'color': '#00BCD4', 'metrics': {'crosses_90': 'Completed Crosses p90', 'crossing_ratio': 'Cross Completion %', 'box_cross_ratio': '% of Box Passes that are Crosses'} },
+    'defensive': { 'name': 'Defensive Work Rate', 'color': '#4CAF50', 'metrics': {'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90', 'padj_tackles_90': 'P.Adj Tackles p90', 'padj_interceptions_90': 'P.Adj Interceptions p90'} },
+    'duels': { 'name': 'Duels & Security', 'color': '#607D8B', 'metrics': {'turnovers_90': 'Ball Security (Inv)', 'dribbled_past_90': 'Times Dribbled Past p90', 'challenge_ratio': 'Defensive Duel Win %'} }
+}
+
+CM_ARCHETYPES = {
+    "Deep-Lying Playmaker (Regista)": {
+        "description": "Dictates tempo from deep, excels in progressive passing.",
+        "identity_metrics": ['op_xgbuildup_90', 'long_balls_90', 'long_ball_ratio', 'forward_pass_proportion', 'passing_ratio', 'through_balls_90'],
+        "key_weight": 1.6
+    },
+    "Box-to-Box Midfielder (B2B)": {
+        "description": "Covers large vertical space, contributes in both boxes.",
+        "identity_metrics": ['deep_progressions_90', 'carries_90', 'padj_tackles_and_interceptions_90', 'pressures_90', 'npg_90', 'touches_inside_box_90'],
+        "key_weight": 1.6
+    },
+    "Ball-Winning Midfielder (Destroyer)": {
+        "description": "Breaks up play, screens defense.",
+        "identity_metrics": ['padj_tackles_90', 'padj_interceptions_90', 'pressure_regains_90', 'challenge_ratio', 'aggressive_actions_90', 'fouls_90'],
+        "key_weight": 1.6
+    },
+    "Advanced Playmaker (Mezzala)": {
+        "description": "Operates in half-spaces, creates in advanced zones.",
+        "identity_metrics": ['xa_90', 'key_passes_90', 'op_passes_into_box_90', 'through_balls_90', 'dribbles_90', 'np_shots_90'],
+        "key_weight": 1.5
+    },
+    "Transition Midfielder (Tempo Carrier)": {
+        "description": "Drives forward in transition, breaks lines with carries.",
+        "identity_metrics": ['carries_90', 'carry_length', 'dribbles_90', 'dribble_ratio', 'deep_progressions_90', 'fouls_won_90'],
+        "key_weight": 1.5
+    },
+    "Holding Midfielder (Anchor)": {
+        "description": "Protects the backline, distributes safely.",
+        "identity_metrics": ['padj_interceptions_90', 'passing_ratio', 'op_xgbuildup_90', 'pressures_90', 'challenge_ratio', 'turnovers_90'],
+        "key_weight": 1.5
+    },
+    "Attacking Midfielder (8.5 Role)": {
+        "description": "Focused on final-third involvement.",
+        "identity_metrics": ['npg_90', 'np_xg_90', 'xa_90', 'key_passes_90', 'touches_inside_box_90', 'np_shots_90'],
+        "key_weight": 1.6
+    }
+}
+
+CM_RADAR_METRICS = {
+    'defending': { 'name': 'Defensive Actions', 'color': '#D32F2F', 'metrics': {'padj_tackles_and_interceptions_90': 'P.Adj Tackles+Ints', 'challenge_ratio': 'Defensive Duel Win %', 'dribbled_past_90': 'Times Dribbled Past p90', 'aggressive_actions_90': 'Aggressive Actions'} },
+    'duels': { 'name': 'Duels & Physicality', 'color': '#AF1D1D', 'metrics': {'aerial_wins_90': 'Aerial Duels Won', 'aerial_ratio': 'Aerial Win %', 'fouls_won_90': 'Fouls Won'} },
+    'passing': { 'name': 'Passing & Distribution', 'color': '#0066CC', 'metrics': {'passing_ratio': 'Pass Completion %', 'forward_pass_proportion': 'Forward Pass %', 'long_balls_90': 'Long Balls p90', 'long_ball_ratio': 'Long Ball Accuracy %'} },
+    'creation': { 'name': 'Creativity & Creation', 'color': '#FF6B35', 'metrics': {'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90', 'through_balls_90': 'Through Balls p90', 'op_xgbuildup_90': 'xG Buildup p90'} },
+    'progression': { 'name': 'Ball Progression', 'color': '#4CAF50', 'metrics': {'deep_progressions_90': 'Deep Progressions', 'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length', 'dribbles_90': 'Successful Dribbles'} },
+    'attacking': { 'name': 'Attacking Output', 'color': '#9C27B0', 'metrics': {'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG', 'np_shots_90': 'Shots p90', 'touches_inside_box_90': 'Touches in Box'} }
+}
+
+FULLBACK_ARCHETYPES = {
+    "Attacking Fullback": {
+        "description": "High attacking output with crosses, key passes, and forward runs into the final third.",
+        "identity_metrics": ['xa_90', 'crosses_90', 'op_passes_into_box_90', 'deep_progressions_90', 'key_passes_90', 'op_xgbuildup_90'],
+        "key_weight": 1.5
+    },
+    "Defensive Fullback": {
+        "description": "Solid defensive foundation with tackles, interceptions, and aerial duels.",
+        "identity_metrics": ['padj_tackles_and_interceptions_90', 'challenge_ratio', 'aggressive_actions_90', 'pressures_90', 'aerial_wins_90', 'aerial_ratio'],
+        "key_weight": 1.5
+    },
+     "Modern Wingback": {
+        "description": "High energy player who covers huge distances, contributing in all phases of play.",
+        "identity_metrics": ['deep_progressions_90', 'crosses_90', 'dribbles_90', 'padj_tackles_and_interceptions_90', 'pressures_90', 'xa_90'],
+        "key_weight": 1.6
+    }
+}
+
+FULLBACK_RADAR_METRICS = {
+    'defensive_actions': { 'name': 'Defensive Actions', 'color': '#00BCD4', 'metrics': {'padj_tackles_and_interceptions_90': 'P.Adj Tackles+Ints p90', 'challenge_ratio': 'Defensive Duel Win %', 'dribbled_past_90': 'Times Dribbled Past p90'} },
+    'duels': { 'name': 'Duels', 'color': '#008294', 'metrics': {'aerial_wins_90': 'Aerial Duels Won p90', 'aerial_ratio': 'Aerial Win %', 'aggressive_actions_90': 'Aggressive Actions p90'} },
+    'progression_creation': { 'name': 'Progression & Creation', 'color': '#FF6B35', 'metrics': {'deep_progressions_90': 'Deep Progressions p90', 'carries_90': 'Ball Carries p90', 'dribbles_90': 'Successful Dribbles p90', 'xa_90': 'xA p90'} },
+    'crossing': { 'name': 'Crossing', 'color': '#FFA735', 'metrics': {'crosses_90': 'Completed Crosses p90', 'crossing_ratio': 'Cross Completion %', 'box_cross_ratio': '% of Box Passes that are Crosses'} },
+    'passing': { 'name': 'Passing & Buildup', 'color': '#9C27B0', 'metrics': {'passing_ratio': 'Pass Completion %', 'op_xgbuildup_90': 'xG Buildup p90', 'key_passes_90': 'Key Passes p90'} },
+    'work_rate': { 'name': 'Work Rate & Security', 'color': '#4CAF50', 'metrics': {'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90', 'turnovers_90': 'Ball Security (Inv)'} }
+}
+
+CB_ARCHETYPES = {
+    "Ball-Playing Defender": {
+        "description": "Comfortable in possession, initiates attacks from the back with progressive passing.",
+        "identity_metrics": ['op_xgbuildup_90', 'passing_ratio', 'long_balls_90', 'long_ball_ratio', 'forward_pass_proportion', 'carries_90'],
+        "key_weight": 1.5
+    },
+    "Stopper": {
+        "description": "Aggressive defender who steps out to challenge attackers and win the ball high up the pitch.",
+        "identity_metrics": ['aggressive_actions_90', 'padj_tackles_90', 'challenge_ratio', 'pressures_90', 'aerial_wins_90', 'fouls_90'],
+        "key_weight": 1.6
+    },
+    "Covering Defender": {
+        "description": "Reads the game well, relying on positioning and interceptions to sweep up behind the defensive line.",
+        "identity_metrics": ['padj_interceptions_90', 'padj_clearances_90', 'dribbled_past_90', 'pressure_regains_90', 'aerial_ratio', 'passing_ratio'],
+        "key_weight": 1.5
+    }
+}
+
+CB_RADAR_METRICS = {
+    'ground_defending': { 'name': 'Ground Duels', 'color': '#D32F2F', 'metrics': {'padj_tackles_90': 'PAdj Tackles', 'challenge_ratio': 'Challenge Success %', 'aggressive_actions_90': 'Aggressive Actions'} },
+    'aerial_duels': { 'name': 'Aerial Duels & Clearances', 'color': '#4CAF50', 'metrics': {'aerial_wins_90': 'Aerial Duels Won', 'aerial_ratio': 'Aerial Win %', 'padj_clearances_90': 'PAdj Clearances'} },
+    'passing_distribution': { 'name': 'Passing & Distribution', 'color': '#0066CC', 'metrics': {'passing_ratio': 'Pass Completion %', 'pass_length': 'Avg. Pass Length', 'long_balls_90': 'Long Balls p90', 'long_ball_ratio': 'Long Ball Accuracy %'} },
+    'ball_progression': { 'name': 'Ball Progression', 'color': '#FFC107', 'metrics': {'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length', 'deep_progressions_90': 'Deep Progressions'} },
+    'defensive_positioning': { 'name': 'Defensive Positioning', 'color': '#00BCD4', 'metrics': {'padj_interceptions_90': 'PAdj Interceptions', 'dribbled_past_90': 'Times Dribbled Past p90', 'pressure_regains_90': 'Pressure Regains'} },
+    'on_ball_security': { 'name': 'On-Ball Security', 'color': '#607D8B', 'metrics': {'turnovers_90': 'Ball Security (Inv)', 'op_xgbuildup_90': 'xG Buildup p90', 'fouls_90': 'Fouls Committed'} }
+}
+
+# FINALIZED: Corrected positional groupings based on user feedback
 POSITIONAL_CONFIGS = {
-    "Fullback": {"archetypes": FULLBACK_ARCHETYPES, "radars": UNIFIED_RADAR_METRICS, "positions": ['Right Back', 'Left Back', 'Right Wing Back', 'Left Wing Back']},
-    "Center Back": {"archetypes": CB_ARCHETYPES, "radars": UNIFIED_RADAR_METRICS, "positions": ['Center Back', 'Left Centre Back', 'Right Centre Back']},
-    "Center Midfielder": {"archetypes": CM_ARCHETYPES, "radars": UNIFIED_RADAR_METRICS, "positions": [
+    "Fullback": {"archetypes": FULLBACK_ARCHETYPES, "radars": FULLBACK_RADAR_METRICS, "positions": 
+                 ['Left Back', 'Left Wing Back', 'Right Back', 'Right Wing Back']},
+    "Center Back": {"archetypes": CB_ARCHETYPES, "radars": CB_RADAR_METRICS, "positions": 
+                    ['Centre Back', 'Left Centre Back', 'Right Centre Back']},
+    "Center Midfielder": {"archetypes": CM_ARCHETYPES, "radars": CM_RADAR_METRICS, "positions": [
         'Centre Attacking Midfielder', 'Centre Defensive Midfielder', 'Left Centre Midfielder', 
-        'Left Defensive Midfielder', 'Right Centre Midfielder', 'Right Defensive Midfielder',
-        'Defensive Midfield', 'Center Midfield', 'Attacking Midfield'
+        'Left Defensive Midfielder', 'Right Centre Midfielder', 'Right Defensive Midfielder'
     ]},
-    "Winger": {"archetypes": WINGER_ARCHETYPES, "radars": UNIFIED_RADAR_METRICS, "positions": [
+    "Winger": {"archetypes": WINGER_ARCHETYPES, "radars": WINGER_RADAR_METRICS, "positions": [
         'Left Attacking Midfielder', 'Left Midfielder', 'Left Wing',
         'Right Attacking Midfielder', 'Right Midfielder', 'Right Wing'
     ]},
-    "Striker": {"archetypes": STRIKER_ARCHETYPES, "radars": UNIFIED_RADAR_METRICS, "positions": [
+    "Striker": {"archetypes": STRIKER_ARCHETYPES, "radars": STRIKER_RADAR_METRICS, "positions": [
         'Centre Forward', 'Left Centre Forward', 'Right Centre Forward', 'Secondary Striker'
     ]}
 }
@@ -149,7 +272,7 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
     for archetype in pos_config['archetypes'].values() for metric in archetype['identity_metrics']
 ) | set(
     metric for pos_config in POSITIONAL_CONFIGS.values()
-    for radar in pos_config['radars'].values() for metric_list in radar.values() for metric in metric_list['metrics'].keys()
+    for radar in pos_config['radars'].values() for metric in radar['metrics'].keys()
 )))
 
 
@@ -157,22 +280,77 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
 
 @st.cache_resource(ttl=3600)
 def get_all_leagues_data(_auth_credentials):
-    """Downloads player statistics from all leagues defined in COMPETITION_SEASONS."""
+    """Downloads player statistics from all leagues with improved error handling."""
     all_dfs = []
+    successful_loads = 0
+    failed_loads = 0
+    
+    try:
+        # Test authentication first
+        test_url = "https://data.statsbombservices.com/api/v4/competitions"
+        test_response = requests.get(test_url, auth=_auth_credentials, timeout=30)
+        test_response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Authentication failed. Please check your username and password. Error: {e}")
+        return None
+    
+    # Progress tracking
+    total_requests = sum(len(season_ids) for season_ids in COMPETITION_SEASONS.values())
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    current_request = 0
+    
     for league_id, season_ids in COMPETITION_SEASONS.items():
+        league_name = LEAGUE_NAMES.get(league_id, f"League {league_id}")
+        
         for season_id in season_ids:
+            current_request += 1
+            progress = current_request / total_requests
+            progress_bar.progress(progress)
+            status_text.text(f"Loading {league_name} (Season {season_id})... {current_request}/{total_requests}")
+            
             try:
                 url = f"https://data.statsbombservices.com/api/v1/competitions/{league_id}/seasons/{season_id}/player-stats"
-                response = requests.get(url, auth=_auth_credentials)
+                response = requests.get(url, auth=_auth_credentials, timeout=60)
                 response.raise_for_status()
-                df_league = pd.json_normalize(response.json())
-                df_league['league_name'] = LEAGUE_NAMES.get(league_id, f"League {league_id}")
+                
+                data = response.json()
+                if not data:
+                    failed_loads += 1
+                    continue
+                    
+                df_league = pd.json_normalize(data)
+                if df_league.empty:
+                    failed_loads += 1
+                    continue
+                
+                df_league['league_name'] = league_name
+                df_league['competition_id'] = league_id
+                df_league['season_id'] = season_id
                 all_dfs.append(df_league)
-            except requests.exceptions.RequestException:
-                continue 
+                successful_loads += 1
+                
+            except Exception:
+                failed_loads += 1
+                continue
+    
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
+    
     if not all_dfs:
+        st.error("Could not load any data from the API. Please check your internet connection and API credentials.")
         return None
-    return pd.concat(all_dfs, ignore_index=True)
+    
+    st.success(f"Successfully loaded data from {successful_loads} league/season combinations.")
+    
+    try:
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        return combined_df
+    except Exception as e:
+        st.error(f"Error combining datasets: {e}")
+        return None
 
 @st.cache_data(ttl=3600)
 def process_data(_raw_data):
@@ -180,13 +358,16 @@ def process_data(_raw_data):
     if _raw_data is None:
         return None
 
+    # --- Data Cleaning ---
     df_processed = _raw_data.copy()
     df_processed.columns = [c.replace('player_season_', '') for c in df_processed.columns]
     
+    # Clean string columns
     for col in ['player_name', 'team_name', 'league_name', 'season_name', 'primary_position']:
         if col in df_processed.columns and df_processed[col].dtype == 'object':
             df_processed[col] = df_processed[col].str.strip()
 
+    # --- Age Calculation ---
     def calculate_age_from_birth_date(birth_date_str):
         if pd.isna(birth_date_str): return None
         try:
@@ -196,21 +377,25 @@ def process_data(_raw_data):
         except (ValueError, TypeError): return None
     df_processed['age'] = df_processed['birth_date'].apply(calculate_age_from_birth_date)
     
+    # --- Metric Calculation ---
     if 'padj_tackles_90' in df_processed.columns and 'padj_interceptions_90' in df_processed.columns:
         df_processed['padj_tackles_and_interceptions_90'] = df_processed['padj_tackles_90'] + df_processed['padj_interceptions_90']
     
-    # --- Global Percentile Calculation ---
+    # --- Global Percentile Calculation (FIXED) ---
+    # Calculate percentiles across ALL players for consistency
     for metric in ALL_METRICS_TO_PERCENTILE:
         if metric in df_processed.columns:
             metric_data = df_processed[metric]
             if pd.api.types.is_numeric_dtype(metric_data) and not metric_data.empty:
                 pct_col = f'{metric}_pct'
+                # Negative stats should be inverted (lower is better)
                 negative_stats = ['turnovers_90', 'dispossessions_90', 'dribbled_past_90', 'fouls_90']
                 if metric in negative_stats:
                     df_processed[pct_col] = 100 - (metric_data.rank(pct=True) * 100)
                 else:
                     df_processed[pct_col] = metric_data.rank(pct=True) * 100
     
+    # Final cleaning of metric columns
     metric_cols = [col for col in df_processed.columns if '_90' in col or '_ratio' in col or 'length' in col]
     pct_cols = [col for col in df_processed.columns if '_pct' in col]
     cols_to_clean = list(set(metric_cols + pct_cols))
@@ -268,10 +453,9 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
         return pool_df.sort_values('upgrade_score', ascending=False)
     else:
         return pool_df.sort_values('similarity_score', ascending=False)
-        
-# FINALIZED RADAR CHART FUNCTION
+
 def create_comparison_radar_chart(players_data, radar_config):
-    """Generates a single radar chart with multiple overlaid players."""
+    """Generates a single radar chart with multiple overlaid players - FIXED VERSION."""
     plt.style.use('seaborn-v0_8-darkgrid')
     metrics_dict = radar_config['metrics']
     labels = ['\n'.join(l.split()) for l in metrics_dict.values()]
@@ -280,13 +464,15 @@ def create_comparison_radar_chart(players_data, radar_config):
     angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
     angles += angles[:1]
 
-    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
+    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
     fig.set_facecolor('#121212')
     ax.set_facecolor('#121212')
 
     def get_percentiles(player, metrics):
+        """Get percentile values - using the WORKING approach"""
+        # This is the key fix - use .get() method like in your working version
         values = [player.get(f'{m}_pct', 0) for m in metrics.keys()]
-        values += values[:1]
+        values += values[:1]  # Close the radar chart
         return values
     
     colors = ['#00f2ff', '#ff0052', '#00ff7f', '#ffc400', '#c800ff', '#f97306']
@@ -294,18 +480,22 @@ def create_comparison_radar_chart(players_data, radar_config):
     for i, player_data in enumerate(players_data):
         values = get_percentiles(player_data, metrics_dict)
         color = colors[i % len(colors)]
+        
+        # Get player name for legend
+        player_name = player_data.get('player_name', 'Unknown')
+        season_name = player_data.get('season_name', 'Unknown')
+        
+        # Plot the data
         ax.fill(angles, values, color=color, alpha=0.25)
-        ax.plot(angles, values, color=color, linewidth=2.5, label=f"{player_data.get('player_name', 'N/A')} ({player_data.get('season_name', 'N/A')})")
-        # Add data labels
-        for angle, value in zip(angles[:-1], values[:-1]):
-            ax.text(angle, value + 5, f"{int(value)}", color=color, ha='center', va='center', fontsize=10, weight='bold')
+        ax.plot(angles, values, color=color, linewidth=2.5, 
+               label=f"{player_name} ({season_name})")
 
     ax.set_ylim(0, 100)
     ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(labels, size=11, color='white')
+    ax.set_xticklabels(labels, size=9, color='white')
     ax.set_rgrids([20, 40, 60, 80], color='gray')
-    ax.set_title(radar_config['name'], size=20, weight='bold', y=1.1, color='white')
-    ax.legend(loc='upper right', bbox_to_anchor=(1.5, 1.15), labelcolor='white', fontsize=12)
+    ax.set_title(radar_config['name'], size=16, weight='bold', y=1.12, color='white')
+    ax.legend(loc='upper right', bbox_to_anchor=(1.6, 1.15), labelcolor='white', fontsize=10)
 
     return fig
 
@@ -319,12 +509,19 @@ if 'comparison_players' not in st.session_state:
 if "comp_selections" not in st.session_state:
     st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
 
-with st.spinner("Loading and processing data for all leagues... This may take a moment."):
-    raw_data = get_all_leagues_data((USERNAME, PASSWORD))
-    if raw_data is not None:
-        processed_data = process_data(raw_data)
-    else:
-        processed_data = None
+# Main data loading with error handling
+processed_data = None
+raw_data = None
+
+try:
+    with st.spinner("Loading and processing data for all leagues... This may take a moment."):
+        raw_data = get_all_leagues_data((USERNAME, PASSWORD))
+        if raw_data is not None:
+            processed_data = process_data(raw_data)
+        else:
+            st.error("Failed to load data. Please check your API credentials and internet connection.")
+except Exception as e:
+    st.error(f"An error occurred while loading data: {e}")
 
 scouting_tab, comparison_tab = st.tabs(["Scouting Analysis", "Direct Comparison"])
 
@@ -346,9 +543,10 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
                 valid_positions = POSITIONAL_CONFIGS[pos_filter]['positions']
                 season_df_filtered = season_df[season_df['primary_position'].isin(valid_positions)]
                 
+                # New Diagnostic Message
                 if season_df_filtered.empty and not season_df.empty:
                     available_pos = sorted(season_df['primary_position'].unique())
-                    st.warning(f"No players found for '{pos_filter}'. Available positions: {available_pos}")
+                    st.warning(f"No players found for '{pos_filter}'. Available positions in this selection: {available_pos}")
                     return None
                 season_df = season_df_filtered
 
@@ -362,6 +560,7 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
                     player_pool = season_df
                 
                 if player_pool.empty:
+                    st.warning(f"No players found for the selected filters.")
                     return None
 
                 player_pool_display = player_pool.copy()
@@ -558,7 +757,6 @@ with comparison_tab:
             cols = st.columns(3) 
             radar_items = list(radars_to_show.items())
 
-            
             for i in range(num_radars):
                 with cols[i % 3]: 
                     radar_name, radar_config = radar_items[i]
