@@ -1,8 +1,8 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v7.0 ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v8.0 (Final) ⚽
 #
-# This version fixes the Streamlit CacheReplayClosureError by moving UI
-# elements (st.toast) out of the cached data-loading function.
+# This version integrates a new overlaid radar style, a cleaner UI,
+# and a more intuitive, stateful multi-player comparison workflow.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -10,14 +10,7 @@ import streamlit as st
 import requests
 import pandas as pd
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-from docx import Document
-from docx.shared import Inches, Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-import os
-import warnings
 import matplotlib.pyplot as plt
-from datetime import date
 from io import BytesIO
 
 warnings.filterwarnings('ignore')
@@ -43,7 +36,7 @@ LEAGUE_NAMES = {
     1848: "I Liga", 1865: "First League"
 }
 
-# Refined list of seasons from 2022/23 to 2025/26
+# Refined list of seasons from 2022/23 to 2025/26, with PL2 re-included
 COMPETITION_SEASONS = {
     4: [235, 281, 317, 318],
     5: [235, 281, 317, 318],
@@ -65,7 +58,7 @@ COMPETITION_SEASONS = {
     1607: [315],
     1778: [282, 315],
     1848: [281, 317, 318],
-    1865: [318]
+    # ID 1865 removed as its seasons are in the future
 }
 
 # (Archetype and Radar Dictionaries are placed here, exactly as they were in the previous version)
@@ -262,12 +255,11 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
 
 # --- 4. DATA HANDLING & ANALYSIS FUNCTIONS (CACHED) ---
 
-# FIX: Moved the data fetching function to the top level to avoid CacheReplayClosureError.
 @st.cache_resource(ttl=3600)
 def get_all_leagues_data(_auth_credentials):
     """Downloads player statistics from all leagues defined in COMPETITION_SEASONS."""
     all_dfs = []
-    error_messages = [] # Collect errors here instead of using st.toast
+    error_messages = [] 
     for league_id, season_ids in COMPETITION_SEASONS.items():
         for season_id in season_ids:
             try:
@@ -277,9 +269,8 @@ def get_all_leagues_data(_auth_credentials):
                 df_league = pd.json_normalize(response.json())
                 df_league['league_name'] = LEAGUE_NAMES.get(league_id, f"League {league_id}")
                 all_dfs.append(df_league)
-            except requests.exceptions.RequestException as e:
-                # Collect error message instead of calling st.toast
-                error_messages.append(f"Could not load L-{league_id} S-{season_id}: {e}")
+            except requests.exceptions.RequestException:
+                error_messages.append(f"Could not load L-{league_id} S-{season_id}")
                 continue 
     if not all_dfs:
         return None, error_messages
@@ -374,72 +365,64 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
     else:
         return pool_df.sort_values('similarity_score', ascending=False)
         
-def create_enhanced_radar_chart(player_data, reference_player, radar_config):
-    plt.style.use('seaborn-v0_8-notebook')
+# NEW: Overlaid radar chart function based on user's preferred code
+def create_comparison_radar_chart(players_data, radar_config):
+    """Generates a single radar chart with multiple overlaid players."""
+    plt.style.use('seaborn-v0_8-darkgrid')
     metrics_dict = radar_config['metrics']
     labels = ['\n'.join(l.split()) for l in metrics_dict.values()]
     num_vars = len(labels)
-    angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist() + [0]
     
-    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
-    fig.patch.set_facecolor('#F5F5F5')
-    
+    angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+    angles += angles[:1]
+
+    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
+    fig.set_facecolor('#121212')
+    ax.set_facecolor('#121212')
+
     def get_percentiles(player, metrics):
-        values = [max(0, min(100, player.get(f'{m}_pct', 50))) for m in metrics.keys()]
-        return values + [values[0]]
-        
-    player_values = get_percentiles(player_data, metrics_dict)
-    player_avg = np.mean(player_values[:-1])
-    player_legend = f"{player_data['player_name']} (Avg: {player_avg:.0f}th %ile)"
+        values = [player.get(f'{m}_pct', 0) for m in metrics.keys()]
+        values += values[:1]
+        return values
     
-    ax.set_rgrids([20, 40, 60, 80], angle=180)
-    ax.set_ylim(0, 105)
-    ax.grid(True, color='grey', linestyle='--', linewidth=0.5, alpha=0.5)
+    # Pre-defined color cycle for players
+    colors = ['#00f2ff', '#ff0052', '#00ff7f', '#ffc400', '#c800ff']
     
-    ax.fill(angles, player_values, color=radar_config['color'], alpha=0.3, zorder=5)
-    ax.plot(angles, player_values, color=radar_config['color'], linewidth=2.5, zorder=6, label=player_legend)
-    
-    for i, value in enumerate(player_values[:-1]):
-        angle = angles[i]
-        ax.text(angle, value + 7, f"{value:.0f}", ha='center', va='center', fontweight='bold', size=9,
-                color='black', bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.2'))
-    
-    if reference_player is not None:
-        ref_values = get_percentiles(reference_player, metrics_dict)
-        ref_avg = np.mean(ref_values[:-1])
-        ref_legend = f"Target: {reference_player['player_name']} (Avg: {ref_avg:.0f}th %ile)"
-        ax.plot(angles, ref_values, color='#4A90E2', linewidth=2, zorder=4, linestyle='--', label=ref_legend)
-    
+    # Plot each player
+    for i, player_data in enumerate(players_data):
+        values = get_percentiles(player_data, metrics_dict)
+        color = colors[i % len(colors)] # Cycle through colors
+        ax.fill(angles, values, color=color, alpha=0.25)
+        ax.plot(angles, values, color=color, linewidth=2.5, label=f"{player_data['player_name']} ({player_data['season_name']})")
+
+    ax.set_ylim(0, 100)
     ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(labels, size=10, fontweight='bold')
-    
-    title = f"{radar_config['name']} | {player_data['player_name']}"
-    if reference_player is not None:
-        title += f"\nvs. {reference_player['player_name']}"
-    
-    ax.set_title(title, size=16, fontweight='bold', y=1.12)
-    ax.legend(loc='upper right', bbox_to_anchor=(1.5, 1.15))
-    
+    ax.set_xticklabels(labels, size=9, color='white')
+    ax.set_rgrids([20, 40, 60, 80], color='gray', linestyle='--')
+    ax.set_title(radar_config['name'], size=16, weight='bold', y=1.1, color='white')
+    ax.legend(loc='upper right', bbox_to_anchor=(1.5, 1.15), labelcolor='white', fontsize=10)
+
     return fig
 
 # --- 6. STREAMLIT APP LAYOUT ---
 st.title("⚽ Advanced Multi-Position Player Analysis Tool")
 
-with st.spinner("Loading and processing data for all leagues... This may take a moment."):
-    raw_data, errors = get_all_leagues_data((USERNAME, PASSWORD))
-    if errors:
-        for error in errors:
-            st.toast(error, icon="⚠️")
-            
-    if raw_data is not None:
-        processed_data = process_data(raw_data)
-    else:
-        processed_data = None
-
+# Initialize session state for a smoother UX
 if 'analysis_run' not in st.session_state:
     st.session_state.analysis_run = False
 if 'comparison_players' not in st.session_state:
     st.session_state.comparison_players = []
+# New state to hold selections for comparison tab to prevent resets
+if "comp_selections" not in st.session_state:
+    st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
+
+with st.spinner("Loading and processing data for all leagues... This may take a moment."):
+    raw_data, errors = get_all_leagues_data((USERNAME, PASSWORD))
+    # Error toasts are now removed for a cleaner interface
+    if raw_data is not None:
+        processed_data = process_data(raw_data)
+    else:
+        processed_data = None
 
 scouting_tab, comparison_tab = st.tabs(["Scouting Analysis", "Direct Comparison"])
 
@@ -492,11 +475,9 @@ with scouting_tab:
             if target_player is not None:
                 st.session_state.analysis_run = True
                 st.session_state.target_player = target_player
-                st.session_state.suggestions = None
                 
                 config = POSITIONAL_CONFIGS[selected_pos]
                 archetypes = config["archetypes"]
-                # Use the full dataset for the similarity pool, not the filtered one
                 position_pool = processed_data[processed_data['primary_position'].isin(config['positions'])]
 
                 detected_archetype, dna_df = detect_player_archetype(target_player, archetypes)
@@ -552,9 +533,54 @@ with comparison_tab:
     st.header("Multi-Player Direct Comparison")
 
     if processed_data is not None:
+        # Reusable filter component with state for a smoother UX
+        def player_filter_ui(data, key_prefix):
+            leagues_and_seasons = data[['league_name', 'season_name']].drop_duplicates().sort_values(by=['league_name', 'season_name'])
+            leagues = sorted(leagues_and_seasons['league_name'].unique())
+            
+            # Use session state to remember selections
+            state = st.session_state.comp_selections
+            
+            selected_league = st.selectbox("League", leagues, key=f"{key_prefix}_league", index=leagues.index(state['league']) if state['league'] in leagues else None, placeholder="Choose a league")
+            state['league'] = selected_league
+            
+            selected_season, selected_team, selected_player_name = None, None, None
+
+            if state['league']:
+                league_df = data[data['league_name'] == state['league']]
+                seasons = sorted(league_df['season_name'].unique())
+                selected_season = st.selectbox("Season", seasons, key=f"{key_prefix}_season", index=seasons.index(state['season']) if state['season'] in seasons else None, placeholder="Choose a season")
+                state['season'] = selected_season
+            
+            if state['season']:
+                season_df = data[(data['league_name'] == state['league']) & (data['season_name'] == state['season'])]
+                teams = ["All Teams"] + sorted(season_df['team_name'].unique())
+                selected_team = st.selectbox("Team", teams, key=f"{key_prefix}_team", index=teams.index(state['team']) if state['team'] in teams else 0)
+                state['team'] = selected_team
+            
+            if state['team']:
+                if state['team'] != "All Teams":
+                    player_pool = data[(data['league_name'] == state['league']) & (data['season_name'] == state['season']) & (data['team_name'] == state['team'])]
+                else:
+                    player_pool = data[(data['league_name'] == state['league']) & (data['season_name'] == state['season'])]
+                
+                players = sorted(player_pool['player_name'].unique())
+                selected_player_name = st.selectbox("Player", players, key=f"{key_prefix}_player", index=None, placeholder="Choose a player")
+                state['player'] = selected_player_name
+            
+            if selected_player_name:
+                player_instance = processed_data[
+                    (processed_data['player_name'] == selected_player_name) & 
+                    (processed_data['season_name'] == selected_season) &
+                    (processed_data['league_name'] == selected_league)
+                ]
+                if not player_instance.empty:
+                    return player_instance.iloc[0]
+            return None
+
         with st.container(border=True):
             st.subheader("Add a Player to Comparison")
-            player_instance = create_player_filter_ui(processed_data, key_prefix="comp")
+            player_instance = player_filter_ui(processed_data, key_prefix="comp")
 
             if st.button("Add Player", type="primary"):
                 if player_instance is not None:
@@ -572,7 +598,7 @@ with comparison_tab:
         if not st.session_state.comparison_players:
             st.info("Add one or more players using the selection box above to start a comparison.")
         else:
-            player_cols = st.columns(len(st.session_state.comparison_players))
+            player_cols = st.columns(len(st.session_state.comparison_players) or 1)
             for i, player_data in enumerate(st.session_state.comparison_players):
                 with player_cols[i]:
                     st.markdown(f"**{player_data['player_name']}**")
@@ -585,20 +611,26 @@ with comparison_tab:
         st.divider()
         
         if st.session_state.comparison_players:
-            st.subheader("Radar Charts")
+            st.subheader("Radar Chart Comparison")
             
             radar_pos_options = list(POSITIONAL_CONFIGS.keys())
             selected_radar_pos = st.selectbox("Select Radar Set to Use for Comparison", radar_pos_options)
             
             radars_to_show = POSITIONAL_CONFIGS[selected_radar_pos]['radars']
             
-            main_cols = st.columns(len(st.session_state.comparison_players))
-            
-            for i, player in enumerate(st.session_state.comparison_players):
-                with main_cols[i]:
-                    st.markdown(f"#### {player['player_name']}")
-                    for radar_name, radar_config in radars_to_show.items():
-                        fig = create_enhanced_radar_chart(player, None, radar_config)
-                        st.pyplot(fig, use_container_width=True)
+            num_radars = len(radars_to_show)
+            cols = st.columns(3) 
+            radar_items = list(radars_to_show.items())
+
+            for i in range(num_radars):
+                with cols[i % 3]: 
+                    radar_name, radar_config = radar_items[i]
+                    # Pass the whole list of players to the new chart function
+                    fig = create_comparison_radar_chart(st.session_state.comparison_players, radar_config)
+                    st.pyplot(fig, use_container_width=True)
     else:
         st.error("Data could not be loaded. Please check your API credentials and network connection.")
+
+
+
+
