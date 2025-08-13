@@ -278,29 +278,9 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
 
 # --- 4. DATA HANDLING & ANALYSIS FUNCTIONS (CACHED) ---
 
-@st.cache_resource(ttl=3600)
-def get_all_leagues_data(_auth_credentials):
-    """Downloads player statistics from all leagues defined in COMPETITION_SEASONS."""
-    all_dfs = []
-    # Errors are collected but not displayed, per user request
-    for league_id, season_ids in COMPETITION_SEASONS.items():
-        for season_id in season_ids:
-            try:
-                url = f"https://data.statsbombservices.com/api/v1/competitions/{league_id}/seasons/{season_id}/player-stats"
-                response = requests.get(url, auth=_auth_credentials)
-                response.raise_for_status()
-                df_league = pd.json_normalize(response.json())
-                df_league['league_name'] = LEAGUE_NAMES.get(league_id, f"League {league_id}")
-                all_dfs.append(df_league)
-            except requests.exceptions.RequestException:
-                continue 
-    if not all_dfs:
-        return None
-    return pd.concat(all_dfs, ignore_index=True)
-
 @st.cache_data(ttl=3600)
 def process_data(_raw_data):
-    """Processes the raw data to calculate ages and percentiles."""
+    """Processes the raw data to calculate ages and percentiles - FIXED VERSION."""
     if _raw_data is None:
         return None
 
@@ -327,17 +307,32 @@ def process_data(_raw_data):
     if 'padj_tackles_90' in df_processed.columns and 'padj_interceptions_90' in df_processed.columns:
         df_processed['padj_tackles_and_interceptions_90'] = df_processed['padj_tackles_90'] + df_processed['padj_interceptions_90']
     
-    # --- Percentile Calculation ---
+    # --- FIXED: Global Percentile Calculation (like your working version) ---
+    # Calculate percentiles across ALL players, not just by position
+    for metric in ALL_METRICS_TO_PERCENTILE:
+        if metric in df_processed.columns:
+            metric_data = df_processed[metric]
+            if pd.api.types.is_numeric_dtype(metric_data) and not metric_data.empty:
+                pct_col = f'{metric}_pct'
+                # Negative stats should be inverted (lower is better)
+                negative_stats = ['turnovers_90', 'dispossessions_90', 'dribbled_past_90', 'fouls_90']
+                if metric in negative_stats:
+                    df_processed[pct_col] = 100 - (metric_data.rank(pct=True) * 100)
+                else:
+                    df_processed[pct_col] = metric_data.rank(pct=True) * 100
+    
+    # Optional: Also calculate position-specific percentiles with different column names
     for pos_group, config in POSITIONAL_CONFIGS.items():
         pos_mask = df_processed['primary_position'].isin(config['positions'])
-        for metric in ALL_METRICS_TO_PERCENTILE:
-            if metric in df_processed.columns:
-                metric_data = df_processed.loc[pos_mask, metric]
-                if pd.api.types.is_numeric_dtype(metric_data) and not metric_data.empty:
-                    pct_col = f'{metric}_pct'
-                    negative_stats = ['turnovers_90', 'dispossessions_90', 'dribbled_past_90', 'fouls_90']
-                    ranks = metric_data.rank(pct=True) * 100
-                    df_processed.loc[pos_mask, pct_col] = 100 - ranks if metric in negative_stats else ranks
+        if pos_mask.sum() > 0:  # Only if we have players in this position
+            for metric in ALL_METRICS_TO_PERCENTILE:
+                if metric in df_processed.columns:
+                    metric_data = df_processed.loc[pos_mask, metric]
+                    if pd.api.types.is_numeric_dtype(metric_data) and not metric_data.empty:
+                        pct_col = f'{metric}_pct_{pos_group.lower().replace(" ", "_")}'
+                        negative_stats = ['turnovers_90', 'dispossessions_90', 'dribbled_past_90', 'fouls_90']
+                        ranks = metric_data.rank(pct=True) * 100
+                        df_processed.loc[pos_mask, pct_col] = 100 - ranks if metric in negative_stats else ranks
     
     # Final cleaning of metric columns
     metric_cols = [col for col in df_processed.columns if '_90' in col or '_ratio' in col or 'length' in col]
@@ -399,7 +394,7 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
         return pool_df.sort_values('similarity_score', ascending=False)
 
 def create_comparison_radar_chart(players_data, radar_config):
-    """Generates a single radar chart with multiple overlaid players."""
+    """Generates a single radar chart with multiple overlaid players - FIXED VERSION."""
     plt.style.use('seaborn-v0_8-darkgrid')
     metrics_dict = radar_config['metrics']
     labels = ['\n'.join(l.split()) for l in metrics_dict.values()]
@@ -413,36 +408,9 @@ def create_comparison_radar_chart(players_data, radar_config):
     ax.set_facecolor('#121212')
 
     def get_percentiles(player, metrics):
-        """Get percentile values for radar chart metrics"""
-        values = []
-        for metric in metrics.keys():
-            pct_metric = f'{metric}_pct'
-            try:
-                # Handle both Series and dict-like access
-                if hasattr(player, 'get'):
-                    # If it's a Series or dict-like object
-                    value = player.get(pct_metric, 0)
-                elif isinstance(player, pd.Series):
-                    # If it's specifically a pandas Series
-                    value = player[pct_metric] if pct_metric in player.index else 0
-                else:
-                    # Fallback for other data types
-                    value = getattr(player, pct_metric, 0)
-                
-                # Ensure value is numeric and handle NaN
-                if pd.isna(value) or not isinstance(value, (int, float)):
-                    value = 0
-                else:
-                    value = float(value)
-                
-                # Clamp value between 0 and 100 for percentiles
-                value = max(0, min(100, value))
-                values.append(value)
-                
-            except (KeyError, AttributeError, TypeError) as e:
-                print(f"Warning: Could not access {pct_metric} for player {player.get('player_name', 'Unknown')}: {e}")
-                values.append(0)
-        
+        """Get percentile values - using the WORKING approach from your second code"""
+        # This is the key fix - use .get() method like in your working version
+        values = [player.get(f'{m}_pct', 0) for m in metrics.keys()]
         values += values[:1]  # Close the radar chart
         return values
     
@@ -452,27 +420,25 @@ def create_comparison_radar_chart(players_data, radar_config):
         values = get_percentiles(player_data, metrics_dict)
         color = colors[i % len(colors)]
         
-        # Only plot if we have valid data
-        if any(v > 0 for v in values[:-1]):  # Check if any non-zero values (excluding the duplicate)
-            ax.fill(angles, values, color=color, alpha=0.25)
-            ax.plot(angles, values, color=color, linewidth=2.5, 
-                   label=f"{player_data.get('player_name', 'Unknown')} ({player_data.get('season_name', 'Unknown')})")
-        else:
-            # Add to legend but don't plot line (all zeros)
-            ax.plot([], [], color=color, linewidth=2.5, 
-                   label=f"{player_data.get('player_name', 'Unknown')} ({player_data.get('season_name', 'Unknown')}) - No Data")
+        # Get player name for legend
+        player_name = player_data.get('player_name', 'Unknown')
+        season_name = player_data.get('season_name', 'Unknown')
+        
+        # Plot the data
+        ax.fill(angles, values, color=color, alpha=0.25)
+        ax.plot(angles, values, color=color, linewidth=2.5, 
+               label=f"{player_name} ({season_name})")
 
     ax.set_ylim(0, 100)
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(labels, size=9, color='white')
-    ax.set_rgrids([20, 40, 60, 80], color='gray', alpha=0.5)
+    ax.set_rgrids([20, 40, 60, 80], color='gray')
     ax.set_title(radar_config['name'], size=16, weight='bold', y=1.12, color='white')
     ax.legend(loc='upper right', bbox_to_anchor=(1.6, 1.15), labelcolor='white', fontsize=10)
-    
-    # Add grid lines for better readability
-    ax.grid(True, alpha=0.3)
 
     return fig
+
+
 # --- 6. STREAMLIT APP LAYOUT ---
 st.title("⚽ Advanced Multi-Position Player Analysis Tool")
 
