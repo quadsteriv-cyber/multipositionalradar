@@ -1,8 +1,8 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v6.8 ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v6.9 ⚽
 #
-# This version implements a consistent, hierarchical filter system
-# (League -> Season -> Team -> Player) across both app features.
+# This version includes a fix for the KeyError that occurred when an
+# archetype could not be detected for a player.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -280,7 +280,8 @@ def load_and_process_data():
                     df_league = pd.json_normalize(response.json())
                     df_league['league_name'] = LEAGUE_NAMES.get(league_id, f"League {league_id}")
                     all_dfs.append(df_league)
-                except Exception:
+                except requests.exceptions.RequestException as e:
+                    st.toast(f"Failed to load data for league {league_id}, season {season_id}: {e}", icon="⚠️")
                     continue 
         if not all_dfs:
             st.error("No league data could be loaded. Check API credentials or league/season IDs.")
@@ -439,7 +440,7 @@ if 'comparison_players' not in st.session_state:
 
 scouting_tab, comparison_tab = st.tabs(["Scouting Analysis", "Direct Comparison"])
 
-# --- NEW: Reusable filter component ---
+# Reusable filter component
 def create_player_filter_ui(data, key_prefix):
     leagues_and_seasons = data[['league_name', 'season_name']].drop_duplicates().sort_values(by=['league_name', 'season_name'])
     leagues = sorted(leagues_and_seasons['league_name'].unique())
@@ -449,25 +450,26 @@ def create_player_filter_ui(data, key_prefix):
     if selected_league:
         league_df = data[data['league_name'] == selected_league]
         seasons = sorted(league_df['season_name'].unique())
-        selected_season = st.selectbox("Season", seasons, key=f"{key_prefix}_season")
+        selected_season = st.selectbox("Season", seasons, key=f"{key_prefix}_season", index=None, placeholder="Choose a season")
         
         if selected_season:
             season_df = league_df[league_df['season_name'] == selected_season]
             teams = ["All Teams"] + sorted(season_df['team_name'].unique())
             selected_team = st.selectbox("Team", teams, key=f"{key_prefix}_team")
             
-            if selected_team and selected_team != "All Teams":
-                player_pool = season_df[season_df['team_name'] == selected_team]
-            else:
-                player_pool = season_df
-            
-            players = sorted(player_pool['player_name'].unique())
-            selected_player_name = st.selectbox("Player", players, key=f"{key_prefix}_player", index=None, placeholder="Choose a player")
-            
-            if selected_player_name:
-                player_instance = player_pool[player_pool['player_name'] == selected_player_name]
-                if not player_instance.empty:
-                    return player_instance.iloc[0]
+            if selected_team:
+                if selected_team != "All Teams":
+                    player_pool = season_df[season_df['team_name'] == selected_team]
+                else:
+                    player_pool = season_df
+                
+                players = sorted(player_pool['player_name'].unique())
+                selected_player_name = st.selectbox("Player", players, key=f"{key_prefix}_player", index=None, placeholder="Choose a player")
+                
+                if selected_player_name:
+                    player_instance = player_pool[player_pool['player_name'] == selected_player_name]
+                    if not player_instance.empty:
+                        return player_instance.iloc[0]
     return None
 
 with scouting_tab:
@@ -491,47 +493,55 @@ with scouting_tab:
                 
                 config = POSITIONAL_CONFIGS[selected_pos]
                 archetypes = config["archetypes"]
+                # Use the full dataset for the similarity pool, not the filtered one
                 position_pool = processed_data[processed_data['primary_position'].isin(config['positions'])]
 
                 detected_archetype, dna_df = detect_player_archetype(target_player, archetypes)
                 st.session_state.detected_archetype = detected_archetype
                 st.session_state.dna_df = dna_df
-
-                archetype_config = archetypes[detected_archetype]
-                matches = find_matches(target_player, position_pool, archetype_config, search_mode_logic)
-                st.session_state.matches = matches
+                
+                if detected_archetype:
+                    archetype_config = archetypes[detected_archetype]
+                    matches = find_matches(target_player, position_pool, archetype_config, search_mode_logic)
+                    st.session_state.matches = matches
+                else:
+                    st.session_state.matches = pd.DataFrame() # Ensure matches is empty if no archetype
             else:
-                st.session_state.analysis_run = False
+                st.session_state.analysis_run = True
+                st.session_state.target_player = None
                 st.sidebar.warning("Please select a valid player to analyze.")
 
-
-        if st.session_state.analysis_run and 'target_player' in st.session_state:
-            tp = st.session_state.target_player
-            dna_df = st.session_state.dna_df
-            matches = st.session_state.matches
-
-            st.header(f"Analysis for: {tp['player_name']} ({tp['season_name']})")
-            st.subheader(f"Detected Archetype: {st.session_state.detected_archetype}")
-            
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                st.dataframe(dna_df.reset_index(drop=True), hide_index=True)
-            with col2:
-                st.write(f"**Description**: {POSITIONAL_CONFIGS[selected_pos]['archetypes'][st.session_state.detected_archetype]['description']}")
-
-            st.subheader(f"Top 10 Matches ({search_mode})")
-            if not matches.empty:
-                display_cols = ['player_name', 'age', 'team_name', 'league_name', 'season_name']
-                score_col = 'upgrade_score' if search_mode_logic == 'upgrade' else 'similarity_score'
-                display_cols.insert(2, score_col)
+        if st.session_state.analysis_run:
+            if 'target_player' in st.session_state and st.session_state.target_player is not None:
+                tp = st.session_state.target_player
+                dna_df = st.session_state.dna_df
+                matches = st.session_state.matches
                 
-                matches_display = matches.head(10)[display_cols].copy()
-                matches_display[score_col] = matches_display[score_col].round(1)
-                st.dataframe(matches_display.rename(columns=lambda c: c.replace('_', ' ').title()), hide_index=True)
+                st.header(f"Analysis for: {tp['player_name']} ({tp['season_name']})")
+                
+                if st.session_state.detected_archetype:
+                    st.subheader(f"Detected Archetype: {st.session_state.detected_archetype}")
+                    col1, col2 = st.columns([1, 2])
+                    with col1:
+                        st.dataframe(dna_df.reset_index(drop=True), hide_index=True)
+                    with col2:
+                        st.write(f"**Description**: {POSITIONAL_CONFIGS[selected_pos]['archetypes'][st.session_state.detected_archetype]['description']}")
+
+                    st.subheader(f"Top 10 Matches ({search_mode})")
+                    if not matches.empty:
+                        display_cols = ['player_name', 'age', 'team_name', 'league_name', 'season_name']
+                        score_col = 'upgrade_score' if search_mode_logic == 'upgrade' else 'similarity_score'
+                        display_cols.insert(2, score_col)
+                        
+                        matches_display = matches.head(10)[display_cols].copy()
+                        matches_display[score_col] = matches_display[score_col].round(1)
+                        st.dataframe(matches_display.rename(columns=lambda c: c.replace('_', ' ').title()), hide_index=True)
+                    else:
+                        st.warning("No players found matching the criteria.")
+                else:
+                    st.warning("Could not determine an archetype for this player, possibly due to missing data.")
             else:
-                st.warning("No players found matching the criteria.")
-        else:
-            st.info("Select a position and a target player in the sidebar to begin analysis.")
+                st.info("Select a position and a target player in the sidebar to begin analysis.")
             
 with comparison_tab:
     st.header("Multi-Player Direct Comparison")
@@ -539,12 +549,10 @@ with comparison_tab:
     if processed_data is not None:
         with st.container(border=True):
             st.subheader("Add a Player to Comparison")
-            # Use the reusable filter component
             player_instance = create_player_filter_ui(processed_data, key_prefix="comp")
 
             if st.button("Add Player", type="primary"):
                 if player_instance is not None:
-                    # Avoid adding the exact same player-season instance
                     if not any(player_instance.equals(p) for p in st.session_state.comparison_players):
                         st.session_state.comparison_players.append(player_instance)
                         st.rerun()
