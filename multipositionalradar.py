@@ -1,8 +1,8 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v8.9 ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v9.0 ⚽
 #
-# This version adds robust data cleaning (stripping whitespace) and a
-# diagnostic message to the filter UI to ensure players are always found.
+# This version fixes a ValueError during data loading by correcting
+# the function call to expect a single return value.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -290,7 +290,7 @@ def process_data(_raw_data):
     
     # Clean string columns
     for col in ['player_name', 'team_name', 'league_name', 'season_name', 'primary_position']:
-        if col in df_processed.columns:
+        if col in df_processed.columns and df_processed[col].dtype == 'object':
             df_processed[col] = df_processed[col].str.strip()
 
     # --- Age Calculation ---
@@ -429,7 +429,7 @@ if "comp_selections" not in st.session_state:
     st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
 
 with st.spinner("Loading and processing data for all leagues... This may take a moment."):
-    raw_data, errors = get_all_leagues_data((USERNAME, PASSWORD))
+    raw_data = get_all_leagues_data((USERNAME, PASSWORD))
     if raw_data is not None:
         processed_data = process_data(raw_data)
     else:
@@ -453,7 +453,15 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
             
             if pos_filter:
                 valid_positions = POSITIONAL_CONFIGS[pos_filter]['positions']
-                season_df = season_df[season_df['primary_position'].isin(valid_positions)]
+                season_df_filtered = season_df[season_df['primary_position'].isin(valid_positions)]
+                
+                # New Diagnostic Message
+                if season_df_filtered.empty and not season_df.empty:
+                    available_pos = sorted(season_df['primary_position'].unique())
+                    st.warning(f"No players found for '{pos_filter}'. Available positions in this selection: {available_pos}")
+                    return None
+                season_df = season_df_filtered
+
 
             teams = ["All Teams"] + sorted(season_df['team_name'].unique())
             selected_team = st.selectbox("Team", teams, key=f"{key_prefix}_team")
@@ -465,7 +473,7 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
                     player_pool = season_df
                 
                 if player_pool.empty:
-                    st.warning(f"No players found for the position '{pos_filter}' in the selected team/season.")
+                    st.warning(f"No players found for the selected filters.")
                     return None
 
                 player_pool_display = player_pool.copy()
@@ -489,8 +497,14 @@ with scouting_tab:
         pos_options = list(POSITIONAL_CONFIGS.keys())
         selected_pos = st.sidebar.selectbox("1. Select a Position to Analyze", pos_options, key="scout_pos")
         
+        # New optional filter toggle
+        filter_by_pos = st.sidebar.checkbox("Filter player list by selected position", value=True, key="pos_filter_toggle")
+        
         st.sidebar.subheader("Select Target Player")
-        target_player = create_player_filter_ui(processed_data, key_prefix="scout", pos_filter=selected_pos)
+        
+        # Conditionally pass the position filter
+        pos_filter_arg = selected_pos if filter_by_pos else None
+        target_player = create_player_filter_ui(processed_data, key_prefix="scout", pos_filter=pos_filter_arg)
         
         search_mode = st.sidebar.radio("Search Mode", ('Find Similar Players', 'Find Potential Upgrades'), key='scout_mode')
         search_mode_logic = 'upgrade' if search_mode == 'Find Potential Upgrades' else 'similar'
