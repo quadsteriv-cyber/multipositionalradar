@@ -1,8 +1,8 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v6.5 ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v6.6 ⚽
 #
-# This version uses a refined list of seasons (2022/23 to 2025/26)
-# for faster performance and a more relevant dataset.
+# This version introduces a dynamic, multi-player comparison tool and
+# refines the player selection workflow to be more intuitive.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -43,7 +43,7 @@ LEAGUE_NAMES = {
     1848: "I Liga", 1865: "First League"
 }
 
-# UPDATED: Refined list of seasons from 2022/23 to 2025/26
+# Refined list of seasons from 2022/23 to 2025/26
 COMPETITION_SEASONS = {
     4: [235, 281, 317, 318],
     5: [235, 281, 317, 318],
@@ -68,6 +68,7 @@ COMPETITION_SEASONS = {
     1865: [318]
 }
 
+# (Archetype and Radar Dictionaries are placed here, exactly as they were in the previous version)
 STRIKER_ARCHETYPES = {
     "Poacher (Fox in the Box)": {
         "description": "Clinical finisher, thrives in the penalty area, instinctive movement, minimal involvement in build-up.",
@@ -258,6 +259,7 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
     for radar in pos_config['radars'].values() for metric in radar['metrics'].keys()
 )))
 
+
 # --- 4. DATA HANDLING & ANALYSIS FUNCTIONS (CACHED) ---
 
 @st.cache_data(ttl=3600)
@@ -432,6 +434,8 @@ with st.spinner("Loading and processing data for all leagues... This may take a 
 
 if 'analysis_run' not in st.session_state:
     st.session_state.analysis_run = False
+if 'comparison_players' not in st.session_state:
+    st.session_state.comparison_players = []
 
 scouting_tab, comparison_tab = st.tabs(["Scouting Analysis", "Direct Comparison"])
 
@@ -522,58 +526,72 @@ with scouting_tab:
             st.info("Select filters and enter a player's name in the sidebar to begin analysis.")
             
 with comparison_tab:
-    st.header("Player vs. Player Direct Comparison")
+    st.header("Multi-Player Direct Comparison")
 
     if processed_data is not None:
         leagues_and_seasons = processed_data[['league_name', 'season_name']].drop_duplicates().sort_values(by=['league_name', 'season_name'])
         leagues = leagues_and_seasons['league_name'].unique()
 
-        def player_selector(player_num):
-            st.subheader(f"Player {player_num}")
-            league = st.selectbox(f"Select League", leagues, key=f"league_{player_num}", index=None, placeholder="Choose a league")
-            if league:
-                seasons = leagues_and_seasons[leagues_and_seasons['league_name'] == league]['season_name'].unique()
-                season = st.selectbox("Select Season", seasons, key=f"season_{player_num}")
-                if season:
-                    players = processed_data[(processed_data['league_name'] == league) & (processed_data['season_name'] == season)]['player_name'].dropna().unique()
-                    player_name = st.selectbox("Select Player", sorted(players), key=f"player_{player_num}", index=None, placeholder="Choose a player")
-                    if player_name:
+        # --- NEW: Section to add players to the comparison ---
+        with st.container(border=True):
+            st.subheader("Add a Player to Comparison")
+            
+            # New League -> Player -> Season selection logic
+            selected_league = st.selectbox("Select League", leagues, key="comp_league", index=None, placeholder="Choose a league")
+            if selected_league:
+                league_df = processed_data[processed_data['league_name'] == selected_league]
+                players = sorted(league_df['player_name'].dropna().unique())
+                selected_player_name = st.selectbox("Select Player", players, key="comp_player", index=None, placeholder="Choose a player")
+                
+                if selected_player_name:
+                    player_seasons = sorted(league_df[league_df['player_name'] == selected_player_name]['season_name'].dropna().unique())
+                    selected_season = st.selectbox("Select Season", player_seasons, key="comp_season")
+                    
+                    if st.button("Add Player", type="primary"):
                         player_instance = processed_data[
-                            (processed_data['player_name'] == player_name) & 
-                            (processed_data['season_name'] == season) &
-                            (processed_data['league_name'] == league)
+                            (processed_data['player_name'] == selected_player_name) & 
+                            (processed_data['season_name'] == selected_season) &
+                            (processed_data['league_name'] == selected_league)
                         ]
                         if not player_instance.empty:
-                            return player_instance.iloc[0]
-            return None
+                            st.session_state.comparison_players.append(player_instance.iloc[0])
+                            st.rerun()
 
-        col1, col2 = st.columns(2)
-        with col1:
-            player1_data = player_selector(1)
-        with col2:
-            player2_data = player_selector(2)
-        
         st.divider()
 
-        if player1_data is not None and player2_data is not None:
-            st.subheader("Radar Comparison")
+        # --- NEW: Display currently selected players and allow removal ---
+        st.subheader("Current Comparison")
+        if not st.session_state.comparison_players:
+            st.info("Add one or more players using the selection box above to start a comparison.")
+        else:
+            player_cols = st.columns(len(st.session_state.comparison_players))
+            for i, player_data in enumerate(st.session_state.comparison_players):
+                with player_cols[i]:
+                    st.markdown(f"**{player_data['player_name']}**")
+                    st.markdown(f"*{player_data['team_name']}*")
+                    st.markdown(f"`{player_data['season_name']}`")
+                    if st.button("Remove", key=f"remove_{i}"):
+                        st.session_state.comparison_players.pop(i)
+                        st.rerun()
+
+        st.divider()
+        
+        # --- NEW: Display radar charts for all selected players ---
+        if st.session_state.comparison_players:
+            st.subheader("Radar Charts")
             
             radar_pos_options = list(POSITIONAL_CONFIGS.keys())
             selected_radar_pos = st.selectbox("Select Radar Set to Use for Comparison", radar_pos_options)
             
             radars_to_show = POSITIONAL_CONFIGS[selected_radar_pos]['radars']
             
-            # IMPROVED: Display 6 radars in a 2x3 grid
-            num_radars = len(radars_to_show)
-            cols = st.columns(3) 
-            radar_items = list(radars_to_show.items())
-
-            for i in range(num_radars):
-                with cols[i % 3]: # Use modulo to wrap columns
-                    radar_name, radar_config = radar_items[i]
-                    fig = create_enhanced_radar_chart(player1_data, player2_data, radar_config)
-                    st.pyplot(fig)
-        else:
-            st.info("Select two players above to generate a comparison.")
-    
-    
+            # Create a main column for each player in the comparison
+            main_cols = st.columns(len(st.session_state.comparison_players))
+            
+            for i, player in enumerate(st.session_state.comparison_players):
+                with main_cols[i]:
+                    st.markdown(f"#### {player['player_name']}")
+                    # Display all 6 radars for this player
+                    for radar_name, radar_config in radars_to_show.items():
+                        fig = create_enhanced_radar_chart(player, None, radar_config)
+                        st.pyplot(fig, use_container_width=True)
