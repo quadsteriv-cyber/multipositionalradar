@@ -1,8 +1,8 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v6.6 ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v6.7 ⚽
 #
-# This version introduces a dynamic, multi-player comparison tool and
-# refines the player selection workflow to be more intuitive.
+# This version simplifies the Direct Comparison workflow, merging the
+# player and season selection into a single, intuitive dropdown.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -529,37 +529,35 @@ with comparison_tab:
     st.header("Multi-Player Direct Comparison")
 
     if processed_data is not None:
-        leagues_and_seasons = processed_data[['league_name', 'season_name']].drop_duplicates().sort_values(by=['league_name', 'season_name'])
-        leagues = leagues_and_seasons['league_name'].unique()
+        leagues = sorted(processed_data['league_name'].dropna().unique())
 
-        # --- NEW: Section to add players to the comparison ---
+        # --- Simplified Player/Season Selection ---
         with st.container(border=True):
             st.subheader("Add a Player to Comparison")
             
-            # New League -> Player -> Season selection logic
-            selected_league = st.selectbox("Select League", leagues, key="comp_league", index=None, placeholder="Choose a league")
+            selected_league = st.selectbox("1. Select League", leagues, key="comp_league", index=None, placeholder="Choose a league")
+            
+            player_instance = None
             if selected_league:
-                league_df = processed_data[processed_data['league_name'] == selected_league]
-                players = sorted(league_df['player_name'].dropna().unique())
-                selected_player_name = st.selectbox("Select Player", players, key="comp_player", index=None, placeholder="Choose a player")
+                league_df = processed_data[processed_data['league_name'] == selected_league].copy()
+                # Create a combined display name for the dropdown
+                league_df['display_name'] = league_df['player_name'] + " (" + league_df['season_name'] + ")"
                 
-                if selected_player_name:
-                    player_seasons = sorted(league_df[league_df['player_name'] == selected_player_name]['season_name'].dropna().unique())
-                    selected_season = st.selectbox("Select Season", player_seasons, key="comp_season")
-                    
-                    if st.button("Add Player", type="primary"):
-                        player_instance = processed_data[
-                            (processed_data['player_name'] == selected_player_name) & 
-                            (processed_data['season_name'] == selected_season) &
-                            (processed_data['league_name'] == selected_league)
-                        ]
-                        if not player_instance.empty:
-                            st.session_state.comparison_players.append(player_instance.iloc[0])
-                            st.rerun()
+                player_options = sorted(league_df['display_name'].dropna().unique())
+                
+                selected_display_name = st.selectbox("2. Select Player and Season", player_options, key="comp_player_season", index=None, placeholder="Choose a player")
+
+                if selected_display_name:
+                    player_instance = league_df[league_df['display_name'] == selected_display_name].iloc[0]
+
+            if st.button("Add Player", type="primary"):
+                if player_instance is not None:
+                    st.session_state.comparison_players.append(player_instance)
+                    st.rerun()
 
         st.divider()
 
-        # --- NEW: Display currently selected players and allow removal ---
+        # --- Display currently selected players and allow removal ---
         st.subheader("Current Comparison")
         if not st.session_state.comparison_players:
             st.info("Add one or more players using the selection box above to start a comparison.")
@@ -576,7 +574,7 @@ with comparison_tab:
 
         st.divider()
         
-        # --- NEW: Display radar charts for all selected players ---
+        # --- Display radar charts for all selected players ---
         if st.session_state.comparison_players:
             st.subheader("Radar Charts")
             
