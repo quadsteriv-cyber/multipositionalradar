@@ -1,8 +1,8 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v8.5 ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v8.8 ⚽
 #
-# This version fixes the TypeError, the matplotlib AttributeError, and
-# enhances the Scouting Analysis filter to be position-aware.
+# This version adds an optional position filter to the scouting tab
+# and improves data cleaning for more robust player searching.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -405,7 +405,7 @@ def create_comparison_radar_chart(players_data, radar_config):
     ax.set_ylim(0, 100)
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(labels, size=9, color='white')
-    ax.set_rgrids([20, 40, 60, 80], color='gray')
+    ax.set_rgrids([20, 40, 60, 80], color='gray') # FIX: Removed linestyle='--'
     ax.set_title(radar_config['name'], size=16, weight='bold', y=1.12, color='white')
     ax.legend(loc='upper right', bbox_to_anchor=(1.6, 1.15), labelcolor='white', fontsize=10)
 
@@ -424,7 +424,7 @@ if "comp_selections" not in st.session_state:
 
 with st.spinner("Loading and processing data for all leagues... This may take a moment."):
     raw_data, errors = get_all_leagues_data((USERNAME, PASSWORD))
-    # Error toasts are now disabled for a cleaner interface
+    # FIX: Error toasts are now disabled for a cleaner interface
     if raw_data is not None:
         processed_data = process_data(raw_data)
     else:
@@ -467,7 +467,7 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
 
                 # IMPROVEMENT: Display name includes age and position
                 player_pool_display = player_pool.copy()
-                # FIX: Handle potential float ages before converting to int
+                # FIX: Handle potential float ages before converting to int to prevent TypeError
                 player_pool_display['age_str'] = player_pool_display['age'].apply(lambda x: str(int(x)) if pd.notna(x) else 'N/A')
                 player_pool_display['display_name'] = player_pool_display['player_name'] + " (" + player_pool_display['age_str'] + ", " + player_pool_display['primary_position'] + ")"
                 
@@ -669,6 +669,3 @@ with comparison_tab:
                     st.pyplot(fig, use_container_width=True)
     else:
         st.error("Data could not be loaded. Please check your API credentials and network connection.")
-
-
-
