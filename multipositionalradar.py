@@ -413,14 +413,36 @@ def create_comparison_radar_chart(players_data, radar_config):
     ax.set_facecolor('#121212')
 
     def get_percentiles(player, metrics):
-        # Fixed: Use pandas Series indexing instead of dictionary access
+        """Get percentile values for radar chart metrics"""
         values = []
         for metric in metrics.keys():
             pct_metric = f'{metric}_pct'
-            if pct_metric in player.index and pd.notna(player[pct_metric]):
-                values.append(player[pct_metric])
-            else:
+            try:
+                # Handle both Series and dict-like access
+                if hasattr(player, 'get'):
+                    # If it's a Series or dict-like object
+                    value = player.get(pct_metric, 0)
+                elif isinstance(player, pd.Series):
+                    # If it's specifically a pandas Series
+                    value = player[pct_metric] if pct_metric in player.index else 0
+                else:
+                    # Fallback for other data types
+                    value = getattr(player, pct_metric, 0)
+                
+                # Ensure value is numeric and handle NaN
+                if pd.isna(value) or not isinstance(value, (int, float)):
+                    value = 0
+                else:
+                    value = float(value)
+                
+                # Clamp value between 0 and 100 for percentiles
+                value = max(0, min(100, value))
+                values.append(value)
+                
+            except (KeyError, AttributeError, TypeError) as e:
+                print(f"Warning: Could not access {pct_metric} for player {player.get('player_name', 'Unknown')}: {e}")
                 values.append(0)
+        
         values += values[:1]  # Close the radar chart
         return values
     
@@ -429,18 +451,28 @@ def create_comparison_radar_chart(players_data, radar_config):
     for i, player_data in enumerate(players_data):
         values = get_percentiles(player_data, metrics_dict)
         color = colors[i % len(colors)]
-        ax.fill(angles, values, color=color, alpha=0.25)
-        ax.plot(angles, values, color=color, linewidth=2.5, label=f"{player_data['player_name']} ({player_data['season_name']})")
+        
+        # Only plot if we have valid data
+        if any(v > 0 for v in values[:-1]):  # Check if any non-zero values (excluding the duplicate)
+            ax.fill(angles, values, color=color, alpha=0.25)
+            ax.plot(angles, values, color=color, linewidth=2.5, 
+                   label=f"{player_data.get('player_name', 'Unknown')} ({player_data.get('season_name', 'Unknown')})")
+        else:
+            # Add to legend but don't plot line (all zeros)
+            ax.plot([], [], color=color, linewidth=2.5, 
+                   label=f"{player_data.get('player_name', 'Unknown')} ({player_data.get('season_name', 'Unknown')}) - No Data")
 
     ax.set_ylim(0, 100)
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(labels, size=9, color='white')
-    ax.set_rgrids([20, 40, 60, 80], color='gray')
+    ax.set_rgrids([20, 40, 60, 80], color='gray', alpha=0.5)
     ax.set_title(radar_config['name'], size=16, weight='bold', y=1.12, color='white')
     ax.legend(loc='upper right', bbox_to_anchor=(1.6, 1.15), labelcolor='white', fontsize=10)
+    
+    # Add grid lines for better readability
+    ax.grid(True, alpha=0.3)
 
     return fig
-
 # --- 6. STREAMLIT APP LAYOUT ---
 st.title("⚽ Advanced Multi-Position Player Analysis Tool")
 
