@@ -1,7 +1,8 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v6.1 ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v6.5 ⚽
 #
-# This version includes an expanded list of all requested leagues and seasons.
+# This version uses a refined list of seasons (2022/23 to 2025/26)
+# for faster performance and a more relevant dataset.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -33,7 +34,6 @@ st.set_page_config(
 USERNAME = "quadsteriv@gmail.com"
 PASSWORD = "SfORY1xR"
 
-# NEW: Expanded league and season dictionaries
 LEAGUE_NAMES = {
     4: "League One", 5: "League Two", 51: "Premiership", 65: "National League",
     76: "Liga", 78: "1. HNL", 89: "USL Championship", 106: "Veikkausliiga",
@@ -43,33 +43,31 @@ LEAGUE_NAMES = {
     1848: "I Liga", 1865: "First League"
 }
 
+# UPDATED: Refined list of seasons from 2022/23 to 2025/26
 COMPETITION_SEASONS = {
-    # ⚠️ WARNING: Loading all these leagues may crash on Streamlit Cloud.
-    # Comment out leagues you don't need for deployment.
-    4: [1, 4, 42, 90, 108, 235, 281, 317, 318, 351],
-    5: [4, 42, 90, 108, 235, 281, 317, 318, 351],
-    51: [4, 42, 90, 108, 235, 281, 317, 318, 351],
-    65: [281, 318, 351],
-    76: [317, 318, 351],
-    78: [317, 318, 351],
-    89: [91, 106, 107, 282, 315, 316, 355],
-    106: [315, 316, 355],
-    107: [43, 91, 106, 107, 282, 315, 316, 355],
-    129: [317, 318, 351],
-    166: [318, 351],
-    179: [317, 318, 351],
-    260: [317, 318, 351],
-    1035: [317, 318, 351],
-    1385: [235, 281, 317, 318, 351],
-    1442: [107, 282, 315, 316, 355],
-    1581: [317, 318, 351],
-    1607: [315, 316, 355],
-    1778: [282, 315, 316, 355],
-    1848: [281, 317, 318, 351],
-    1865: [318, 351]
+    4: [235, 281, 317, 318],
+    5: [235, 281, 317, 318],
+    51: [235, 281, 317, 318],
+    65: [281, 318],
+    76: [317, 318],
+    78: [317, 318],
+    89: [106, 107, 282, 315],
+    106: [315],
+    107: [106, 107, 282, 315],
+    129: [317, 318],
+    166: [318],
+    179: [317, 318],
+    260: [317, 318],
+    1035: [317, 318],
+    1385: [235, 281, 317, 318],
+    1442: [107, 282, 315],
+    1581: [317, 318],
+    1607: [315],
+    1778: [282, 315],
+    1848: [281, 317, 318],
+    1865: [318]
 }
 
-# (Archetype and Radar Dictionaries are placed here, exactly as they were in the previous version)
 STRIKER_ARCHETYPES = {
     "Poacher (Fox in the Box)": {
         "description": "Clinical finisher, thrives in the penalty area, instinctive movement, minimal involvement in build-up.",
@@ -118,9 +116,12 @@ STRIKER_ARCHETYPES = {
     }
 }
 STRIKER_RADAR_METRICS = {
-    'finishing': { 'name': 'Finishing & Shot Quality', 'color': '#D32F2F', 'metrics': {'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG', 'np_shots_90': 'Shots p90', 'touches_inside_box_90': 'Touches in Box p90', 'conversion_ratio': 'Shot Conversion %', 'np_xg_per_shot': 'Avg. Shot Quality'} },
-    'creation': { 'name': 'Creation & Link-Up Play', 'color': '#FF6B35', 'metrics': {'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90', 'op_passes_into_box_90': 'Passes into Box p90', 'through_balls_90': 'Through Balls p90', 'op_xgbuildup_90': 'xG Buildup p90', 'fouls_won_90': 'Fouls Won p90'} },
-    'physicality_pressing': { 'name': 'Physicality & Pressing', 'color': '#4CAF50', 'metrics': {'aerial_wins_90': 'Aerial Duels Won', 'aerial_ratio': 'Aerial Win %', 'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains', 'aggressive_actions_90': 'Aggressive Actions', 'turnovers_90': 'Ball Security (Inv)'} }
+    'finishing': { 'name': 'Finishing', 'color': '#D32F2F', 'metrics': {'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG', 'np_shots_90': 'Shots p90', 'conversion_ratio': 'Shot Conversion %', 'np_xg_per_shot': 'Avg. Shot Quality'} },
+    'box_presence': { 'name': 'Box Presence', 'color': '#AF1D1D', 'metrics': {'touches_inside_box_90': 'Touches in Box p90', 'passes_inside_box_90': 'Passes in Box p90', 'positive_outcome_90': 'Positive Outcomes p90'} },
+    'creation': { 'name': 'Creation & Link-Up', 'color': '#FF6B35', 'metrics': {'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90', 'op_passes_into_box_90': 'Passes into Box p90', 'through_balls_90': 'Through Balls p90', 'op_xgbuildup_90': 'xG Buildup p90'} },
+    'dribbling': { 'name': 'Dribbling & Carrying', 'color': '#9C27B0', 'metrics': {'dribbles_90': 'Successful Dribbles p90', 'dribble_ratio': 'Dribble Success %', 'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length', 'turnovers_90': 'Ball Security (Inv)'} },
+    'aerial': { 'name': 'Aerial Prowess', 'color': '#607D8B', 'metrics': {'aerial_wins_90': 'Aerial Duels Won p90', 'aerial_ratio': 'Aerial Win %', 'fouls_won_90': 'Fouls Won p90'} },
+    'defensive': { 'name': 'Defensive Contribution', 'color': '#4CAF50', 'metrics': {'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90', 'counterpressures_90': 'Counterpressures p90', 'aggressive_actions_90': 'Aggressive Actions'} }
 }
 WINGER_ARCHETYPES = {
     "Goal-Scoring Winger": {
@@ -141,8 +142,11 @@ WINGER_ARCHETYPES = {
 }
 WINGER_RADAR_METRICS = {
     'goal_threat': { 'name': 'Goal Threat', 'color': '#D32F2F', 'metrics': {'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG', 'np_shots_90': 'Shots p90', 'touches_inside_box_90': 'Touches in Box p90', 'conversion_ratio': 'Shot Conversion %', 'np_xg_per_shot': 'Avg. Shot Quality'} },
-    'creation_passing': { 'name': 'Creation & Passing', 'color': '#FF6B35', 'metrics': {'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90', 'op_passes_into_box_90': 'Passes into Box p90', 'through_balls_90': 'Through Balls p90', 'op_xgbuildup_90': 'xG Buildup p90', 'passing_ratio': 'Pass Completion %'} },
-    'dribbling_progression': { 'name': 'Dribbling & Progression', 'color': '#9C27B0', 'metrics': {'dribbles_90': 'Successful Dribbles p90', 'dribble_ratio': 'Dribble Success %', 'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length', 'deep_progressions_90': 'Deep Progressions p90', 'fouls_won_90': 'Fouls Won p90'} }
+    'creation': { 'name': 'Chance Creation', 'color': '#FF6B35', 'metrics': {'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90', 'op_passes_into_box_90': 'Passes into Box p90', 'through_balls_90': 'Through Balls p90', 'op_xgbuildup_90': 'xG Buildup p90', 'passing_ratio': 'Pass Completion %'} },
+    'progression': { 'name': 'Dribbling & Progression', 'color': '#9C27B0', 'metrics': {'dribbles_90': 'Successful Dribbles p90', 'dribble_ratio': 'Dribble Success %', 'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length', 'deep_progressions_90': 'Deep Progressions p90', 'fouls_won_90': 'Fouls Won p90'} },
+    'crossing': { 'name': 'Crossing Profile', 'color': '#00BCD4', 'metrics': {'crosses_90': 'Completed Crosses p90', 'crossing_ratio': 'Cross Completion %', 'box_cross_ratio': '% of Box Passes that are Crosses'} },
+    'defensive': { 'name': 'Defensive Work Rate', 'color': '#4CAF50', 'metrics': {'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90', 'padj_tackles_90': 'P.Adj Tackles p90', 'padj_interceptions_90': 'P.Adj Interceptions p90'} },
+    'duels': { 'name': 'Duels & Security', 'color': '#607D8B', 'metrics': {'turnovers_90': 'Ball Security (Inv)', 'dribbled_past_90': 'Times Dribbled Past p90', 'challenge_ratio': 'Defensive Duel Win %'} }
 }
 CM_ARCHETYPES = {
     "Deep-Lying Playmaker (Regista)": {
@@ -182,9 +186,12 @@ CM_ARCHETYPES = {
     }
 }
 CM_RADAR_METRICS = {
-    'ball_winning': { 'name': 'Ball Winning & Defending', 'color': '#D32F2F', 'metrics': {'padj_tackles_90': 'PAdj Tackles', 'padj_interceptions_90': 'PAdj Interceptions', 'pressure_regains_90': 'Pressure Regains', 'challenge_ratio': 'Challenge Success %', 'dribbled_past_90': 'Dribbled Past p90', 'aggressive_actions_90': 'Aggressive Actions'} },
-    'progression': { 'name': 'Ball Progression', 'color': '#4CAF50', 'metrics': {'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length', 'dribbles_90': 'Successful Dribbles', 'deep_progressions_90': 'Deep Progressions', 'fouls_won_90': 'Fouls Won p90', 'turnovers_90': 'Ball Security (Inv)'} },
-    'distribution': { 'name': 'Distribution & Creation', 'color': '#0066CC', 'metrics': {'passing_ratio': 'Pass Completion %', 'forward_pass_proportion': 'Forward Pass %', 'op_xgbuildup_90': 'xG Buildup p90', 'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90', 'long_balls_90': 'Long Balls p90'} }
+    'defending': { 'name': 'Defensive Actions', 'color': '#D32F2F', 'metrics': {'padj_tackles_and_interceptions_90': 'P.Adj Tackles+Ints', 'challenge_ratio': 'Defensive Duel Win %', 'dribbled_past_90': 'Times Dribbled Past p90', 'aggressive_actions_90': 'Aggressive Actions'} },
+    'duels': { 'name': 'Duels & Physicality', 'color': '#AF1D1D', 'metrics': {'aerial_wins_90': 'Aerial Duels Won', 'aerial_ratio': 'Aerial Win %', 'fouls_won_90': 'Fouls Won'} },
+    'passing': { 'name': 'Passing & Distribution', 'color': '#0066CC', 'metrics': {'passing_ratio': 'Pass Completion %', 'forward_pass_proportion': 'Forward Pass %', 'long_balls_90': 'Long Balls p90', 'long_ball_ratio': 'Long Ball Accuracy %'} },
+    'creation': { 'name': 'Creativity & Creation', 'color': '#FF6B35', 'metrics': {'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90', 'through_balls_90': 'Through Balls p90', 'op_xgbuildup_90': 'xG Buildup p90'} },
+    'progression': { 'name': 'Ball Progression', 'color': '#4CAF50', 'metrics': {'deep_progressions_90': 'Deep Progressions', 'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length', 'dribbles_90': 'Successful Dribbles'} },
+    'attacking': { 'name': 'Attacking Output', 'color': '#9C27B0', 'metrics': {'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG', 'np_shots_90': 'Shots p90', 'touches_inside_box_90': 'Touches in Box'} }
 }
 FULLBACK_ARCHETYPES = {
     "Attacking Fullback": {
@@ -204,9 +211,12 @@ FULLBACK_ARCHETYPES = {
     }
 }
 FULLBACK_RADAR_METRICS = {
-    'defensive_actions': { 'name': 'Defensive Actions', 'color': '#00BCD4', 'metrics': {'padj_tackles_and_interceptions_90': 'P.Adj Tackles+Ints p90', 'challenge_ratio': 'Defensive Duel Win %', 'aggressive_actions_90': 'Aggressive Actions p90', 'aerial_wins_90': 'Aerial Duels Won p90', 'aerial_ratio': 'Aerial Win %', 'dribbled_past_90': 'Times Dribbled Past p90'} },
-    'progression_creation': { 'name': 'Progression & Creation', 'color': '#FF6B35', 'metrics': {'deep_progressions_90': 'Deep Progressions p90', 'carry_length': 'Avg. Carry Length', 'dribbles_90': 'Successful Dribbles p90', 'dribble_ratio': 'Dribble Success %', 'op_passes_into_box_90': 'Open Play Passes into Box', 'xa_90': 'xA p90'} },
-    'work_rate_security': { 'name': 'Work Rate & Security', 'color': '#4CAF50', 'metrics': {'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90', 'counterpressures_90': 'Counterpressures p90', 'fouls_won_90': 'Fouls Won p90', 'turnovers_90': 'Ball Security (Inv)', 'op_xgbuildup_90': 'xG Buildup p90'} }
+    'defensive_actions': { 'name': 'Defensive Actions', 'color': '#00BCD4', 'metrics': {'padj_tackles_and_interceptions_90': 'P.Adj Tackles+Ints p90', 'challenge_ratio': 'Defensive Duel Win %', 'dribbled_past_90': 'Times Dribbled Past p90'} },
+    'duels': { 'name': 'Duels', 'color': '#008294', 'metrics': {'aerial_wins_90': 'Aerial Duels Won p90', 'aerial_ratio': 'Aerial Win %', 'aggressive_actions_90': 'Aggressive Actions p90'} },
+    'progression_creation': { 'name': 'Progression & Creation', 'color': '#FF6B35', 'metrics': {'deep_progressions_90': 'Deep Progressions p90', 'carries_90': 'Ball Carries p90', 'dribbles_90': 'Successful Dribbles p90', 'xa_90': 'xA p90'} },
+    'crossing': { 'name': 'Crossing', 'color': '#FFA735', 'metrics': {'crosses_90': 'Completed Crosses p90', 'crossing_ratio': 'Cross Completion %', 'box_cross_ratio': '% of Box Passes that are Crosses'} },
+    'passing': { 'name': 'Passing & Buildup', 'color': '#9C27B0', 'metrics': {'passing_ratio': 'Pass Completion %', 'op_xgbuildup_90': 'xG Buildup p90', 'key_passes_90': 'Key Passes p90'} },
+    'work_rate': { 'name': 'Work Rate & Security', 'color': '#4CAF50', 'metrics': {'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90', 'turnovers_90': 'Ball Security (Inv)'} }
 }
 CB_ARCHETYPES = {
     "Ball-Playing Defender": {
@@ -226,9 +236,12 @@ CB_ARCHETYPES = {
     }
 }
 CB_RADAR_METRICS = {
-    'ground_defending': { 'name': 'Ground Duels & Defending', 'color': '#D32F2F', 'metrics': {'padj_tackles_90': 'PAdj Tackles', 'padj_interceptions_90': 'PAdj Interceptions', 'aggressive_actions_90': 'Aggressive Actions', 'challenge_ratio': 'Challenge Success %', 'pressures_90': 'Pressures p90', 'dribbled_past_90': 'Dribbled Past p90'} },
-    'aerial_duels': { 'name': 'Aerial Duels', 'color': '#4CAF50', 'metrics': {'aerial_wins_90': 'Aerial Duels Won', 'aerial_ratio': 'Aerial Win %', 'padj_clearances_90': 'PAdj Clearances', 'fouls_90': 'Fouls Committed', 'challenge_ratio': 'Challenge Success %', 'aggressive_actions_90': 'Aggressive Actions'} },
-    'passing_progression': { 'name': 'Passing & Progression', 'color': '#0066CC', 'metrics': {'passing_ratio': 'Pass Completion %', 'pass_length': 'Avg. Pass Length', 'long_balls_90': 'Long Balls p90', 'long_ball_ratio': 'Long Ball Accuracy %', 'forward_pass_proportion': 'Forward Pass %', 'op_xgbuildup_90': 'xG Buildup p90'} }
+    'ground_defending': { 'name': 'Ground Duels', 'color': '#D32F2F', 'metrics': {'padj_tackles_90': 'PAdj Tackles', 'challenge_ratio': 'Challenge Success %', 'aggressive_actions_90': 'Aggressive Actions'} },
+    'aerial_duels': { 'name': 'Aerial Duels & Clearances', 'color': '#4CAF50', 'metrics': {'aerial_wins_90': 'Aerial Duels Won', 'aerial_ratio': 'Aerial Win %', 'padj_clearances_90': 'PAdj Clearances'} },
+    'passing_distribution': { 'name': 'Passing & Distribution', 'color': '#0066CC', 'metrics': {'passing_ratio': 'Pass Completion %', 'pass_length': 'Avg. Pass Length', 'long_balls_90': 'Long Balls p90', 'long_ball_ratio': 'Long Ball Accuracy %'} },
+    'ball_progression': { 'name': 'Ball Progression', 'color': '#FFC107', 'metrics': {'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length', 'deep_progressions_90': 'Deep Progressions'} },
+    'defensive_positioning': { 'name': 'Defensive Positioning', 'color': '#00BCD4', 'metrics': {'padj_interceptions_90': 'PAdj Interceptions', 'dribbled_past_90': 'Times Dribbled Past p90', 'pressure_regains_90': 'Pressure Regains'} },
+    'on_ball_security': { 'name': 'On-Ball Security', 'color': '#607D8B', 'metrics': {'turnovers_90': 'Ball Security (Inv)', 'op_xgbuildup_90': 'xG Buildup p90', 'fouls_90': 'Fouls Committed'} }
 }
 POSITIONAL_CONFIGS = {
     "Fullback": {"archetypes": FULLBACK_ARCHETYPES, "radars": FULLBACK_RADAR_METRICS, "positions": ['Right Back', 'Left Back', 'Right Wing Back', 'Left Wing Back']},
@@ -245,7 +258,6 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
     for radar in pos_config['radars'].values() for metric in radar['metrics'].keys()
 )))
 
-
 # --- 4. DATA HANDLING & ANALYSIS FUNCTIONS (CACHED) ---
 
 @st.cache_data(ttl=3600)
@@ -253,28 +265,27 @@ def load_and_process_data():
     """Decorator to cache the data loading and processing functions."""
     
     # --- Nested Data Functions ---
-    def get_all_leagues_data(auth_credentials):
+    @st.cache_resource
+    def get_all_leagues_data(_auth_credentials):
         """Downloads player statistics from all leagues defined in COMPETITION_SEASONS."""
         all_dfs = []
-        # MODIFIED: Nested loop to handle multiple seasons per league
         for league_id, season_ids in COMPETITION_SEASONS.items():
             for season_id in season_ids:
                 try:
                     url = f"https://data.statsbombservices.com/api/v1/competitions/{league_id}/seasons/{season_id}/player-stats"
-                    response = requests.get(url, auth=auth_credentials)
+                    response = requests.get(url, auth=_auth_credentials)
                     response.raise_for_status()
                     df_league = pd.json_normalize(response.json())
                     df_league['league_name'] = LEAGUE_NAMES.get(league_id, f"League {league_id}")
                     all_dfs.append(df_league)
                 except Exception:
-                    continue # Silently skip if a specific season fails
+                    continue 
         if not all_dfs:
             st.error("No league data could be loaded. Check API credentials or league/season IDs.")
             return None
         return pd.concat(all_dfs, ignore_index=True)
 
     def calculate_age_from_birth_date(birth_date_str):
-        """Calculates player age from a birth date string."""
         if pd.isna(birth_date_str): return None
         try:
             birth_date = pd.to_datetime(birth_date_str).date()
@@ -312,10 +323,8 @@ def load_and_process_data():
 
 
 # --- 5. ANALYSIS & REPORTING FUNCTIONS ---
-# (These are helper functions and do not use Streamlit widgets)
 
 def find_player_by_name(df, player_name):
-    """Finds a player by exact or partial name match."""
     if not player_name: return None, None
     exact_matches = df[df['player_name'].str.lower() == player_name.lower()]
     if not exact_matches.empty: return exact_matches.iloc[0].copy(), None
@@ -327,7 +336,6 @@ def find_player_by_name(df, player_name):
     return None, None
 
 def detect_player_archetype(target_player, archetypes):
-    """Determines the most likely archetype for a player based on their stats."""
     archetype_scores = {}
     for name, config in archetypes.items():
         metrics = [f"{m}_pct" for m in config['identity_metrics']]
@@ -339,7 +347,6 @@ def detect_player_archetype(target_player, archetypes):
     return best_archetype, pd.DataFrame(archetype_scores.items(), columns=['Archetype', 'Affinity Score']).sort_values(by='Affinity Score', ascending=False)
 
 def find_matches(target_player, pool_df, archetype_config, search_mode='similar', min_minutes=500):
-    """Finds similar players or upgrades."""
     key_identity_metrics = archetype_config['identity_metrics']
     key_weight = archetype_config['key_weight']
     min_percentile = archetype_config['min_percentile_threshold']
@@ -350,7 +357,6 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
     if pool_df.empty:
         return pd.DataFrame()
 
-    # BUG FIX: Fill NaN values in the target player's vector with 50 (median percentile)
     target_vector = target_player[percentile_metrics].fillna(50).values.reshape(1, -1)
     pool_matrix = pool_df[percentile_metrics].values
     
@@ -371,7 +377,6 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
         return pool_df.sort_values('similarity_score', ascending=False)
         
 def create_enhanced_radar_chart(player_data, reference_player, radar_config):
-    """Creates a radar chart figure."""
     plt.style.use('seaborn-v0_8-notebook')
     metrics_dict = radar_config['metrics']
     labels = ['\n'.join(l.split()) for l in metrics_dict.values()]
@@ -437,13 +442,31 @@ with scouting_tab:
         pos_options = list(POSITIONAL_CONFIGS.keys())
         selected_pos = st.sidebar.selectbox("1. Select a Position to Analyze", pos_options, key="scout_pos")
         
+        leagues_and_seasons = processed_data[['league_name', 'season_name']].drop_duplicates().sort_values(by=['league_name', 'season_name'])
+        leagues = ["All Leagues"] + sorted(leagues_and_seasons['league_name'].unique())
+        
+        selected_league = st.sidebar.selectbox("2. Filter by League (Optional)", leagues, key="scout_league")
+
+        if selected_league == "All Leagues":
+            seasons = ["All Seasons"]
+            selected_season = "All Seasons"
+        else:
+            seasons = ["All Seasons"] + sorted(leagues_and_seasons[leagues_and_seasons['league_name'] == selected_league]['season_name'].unique())
+            selected_season = st.sidebar.selectbox("3. Filter by Season (Optional)", seasons, key="scout_season")
+
+        filtered_pool = processed_data.copy()
+        if selected_league != "All Leagues":
+            filtered_pool = filtered_pool[filtered_pool['league_name'] == selected_league]
+        if selected_season != "All Seasons":
+            filtered_pool = filtered_pool[filtered_pool['season_name'] == selected_season]
+
         config = POSITIONAL_CONFIGS[selected_pos]
         archetypes = config["archetypes"]
-        position_pool = processed_data[processed_data['primary_position'].isin(config['positions'])]
+        position_pool = filtered_pool[filtered_pool['primary_position'].isin(config['positions'])]
         
-        player_name_input = st.sidebar.text_input("2. Enter Target Player's Full Name", placeholder="e.g., Harry Kane", key="scout_player")
+        player_name_input = st.sidebar.text_input("4. Enter Target Player's Full Name", placeholder="e.g., Harry Kane", key="scout_player")
         
-        search_mode = st.sidebar.radio("3. Select Search Mode", ('Find Similar Players', 'Find Potential Upgrades'), key='scout_mode')
+        search_mode = st.sidebar.radio("5. Select Search Mode", ('Find Similar Players', 'Find Potential Upgrades'), key='scout_mode')
         search_mode_logic = 'upgrade' if search_mode == 'Find Potential Upgrades' else 'similar'
 
         if st.sidebar.button("Analyze Player", type="primary", key="scout_analyze"):
@@ -489,14 +512,14 @@ with scouting_tab:
                     matches_display[score_col] = matches_display[score_col].round(1)
                     st.dataframe(matches_display.rename(columns=lambda c: c.replace('_', ' ').title()), hide_index=True)
                 else:
-                    st.warning("No players found matching the criteria.")
+                    st.warning("No players found matching the criteria for the selected filters.")
                     
             elif 'suggestions' in st.session_state and st.session_state.suggestions is not None:
                 st.warning(f"Player '{player_name_input}' not found. Did you mean one of these?")
                 for p in st.session_state.suggestions:
                     st.write(f"- {p['player_name']} ({p['team_name']})")
         else:
-            st.info("Select a position and enter a player's name in the sidebar to begin analysis.")
+            st.info("Select filters and enter a player's name in the sidebar to begin analysis.")
             
 with comparison_tab:
     st.header("Player vs. Player Direct Comparison")
@@ -515,7 +538,13 @@ with comparison_tab:
                     players = processed_data[(processed_data['league_name'] == league) & (processed_data['season_name'] == season)]['player_name'].dropna().unique()
                     player_name = st.selectbox("Select Player", sorted(players), key=f"player_{player_num}", index=None, placeholder="Choose a player")
                     if player_name:
-                        return processed_data[(processed_data['player_name'] == player_name) & (processed_data['season_name'] == season)].iloc[0]
+                        player_instance = processed_data[
+                            (processed_data['player_name'] == player_name) & 
+                            (processed_data['season_name'] == season) &
+                            (processed_data['league_name'] == league)
+                        ]
+                        if not player_instance.empty:
+                            return player_instance.iloc[0]
             return None
 
         col1, col2 = st.columns(2)
@@ -534,14 +563,17 @@ with comparison_tab:
             
             radars_to_show = POSITIONAL_CONFIGS[selected_radar_pos]['radars']
             
+            # IMPROVED: Display 6 radars in a 2x3 grid
             num_radars = len(radars_to_show)
-            cols = st.columns(num_radars)
-            
-            for i, (radar_name, radar_config) in enumerate(radars_to_show.items()):
-                with cols[i]:
+            cols = st.columns(3) 
+            radar_items = list(radars_to_show.items())
+
+            for i in range(num_radars):
+                with cols[i % 3]: # Use modulo to wrap columns
+                    radar_name, radar_config = radar_items[i]
                     fig = create_enhanced_radar_chart(player1_data, player2_data, radar_config)
                     st.pyplot(fig)
         else:
-            st.info("Select two players above to generate a comparison.") 
+            st.info("Select two players above to generate a comparison.")
     
     
