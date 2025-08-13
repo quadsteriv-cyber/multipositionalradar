@@ -244,22 +244,22 @@ CB_RADAR_METRICS = {
 }
 
 # FINALIZED: Corrected positional groupings based on user feedback
+# FINALIZED: Corrected positional groupings based on user feedback
 POSITIONAL_CONFIGS = {
     "Fullback": {"archetypes": FULLBACK_ARCHETYPES, "radars": FULLBACK_RADAR_METRICS, "positions": 
-                 ['Right Back', 'Left Back', 'Right Wing Back', 'Left Wing Back']},
+                 ['Left Back', 'Left Wing Back', 'Right Back', 'Right Wing Back']},
     "Center Back": {"archetypes": CB_ARCHETYPES, "radars": CB_RADAR_METRICS, "positions": 
-                    ['Center Back', 'Left Centre Back', 'Right Centre Back']},
+                    ['Centre Back', 'Left Centre Back', 'Right Centre Back']},
     "Center Midfielder": {"archetypes": CM_ARCHETYPES, "radars": CM_RADAR_METRICS, "positions": [
-        'Defensive Midfield', 'Center Defensive Midfield', 'Center Midfield',
-        'Right Centre Midfielder', 'Left Centre Midfielder', 'Left Defensive Midfielder',
-        'Right Defensive Midfielder', 'Centre Attacking Midfielder', 'Attacking Midfield'
+        'Centre Attacking Midfielder', 'Centre Defensive Midfielder', 'Left Centre Midfielder', 
+        'Left Defensive Midfielder', 'Right Centre Midfielder', 'Right Defensive Midfielder'
     ]},
     "Winger": {"archetypes": WINGER_ARCHETYPES, "radars": WINGER_RADAR_METRICS, "positions": [
-        'Right Wing', 'Left Wing', 'Right Midfield', 'Left Midfield', 
-        'Left Attacking Midfielder', 'Right Attacking Midfielder'
+        'Left Attacking Midfielder', 'Left Midfielder', 'Left Wing',
+        'Right Attacking Midfielder', 'Right Midfielder', 'Right Wing'
     ]},
     "Striker": {"archetypes": STRIKER_ARCHETYPES, "radars": STRIKER_RADAR_METRICS, "positions": [
-        'Center Forward', 'Secondary Striker', 'Left Centre Forward', 'Right Centre Forward'
+        'Centre Forward', 'Left Centre Forward', 'Right Centre Forward', 'Secondary Striker'
     ]}
 }
 
