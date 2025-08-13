@@ -19,6 +19,7 @@ import os
 import warnings
 import traceback
 import matplotlib.pyplot as plt
+import cosine_similarity
 from rich.console import Console
 from rich.progress import Progress
 from rich.panel import Panel
