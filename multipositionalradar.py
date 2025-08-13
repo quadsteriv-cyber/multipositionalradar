@@ -1,18 +1,19 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v8.0 (Final) ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v8.3 (Final) ⚽
 #
-# This version integrates a new overlaid radar style, a cleaner UI,
-# and a more intuitive, stateful multi-player comparison workflow.
+# This version corrects the season list, improves the comparison tab's
+# UI for a smoother workflow, and contains no other known errors.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
 import streamlit as st
 import requests
-import warnings
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from io import BytesIO
+import warnings
+from sklearn.metrics.pairwise import cosine_similarity
 
 warnings.filterwarnings('ignore')
 
@@ -37,7 +38,7 @@ LEAGUE_NAMES = {
     1848: "I Liga", 1865: "First League"
 }
 
-# Refined list of seasons from 2022/23 to 2025/26, with PL2 re-included
+# FINALIZED: Corrected list of seasons from 2022/23 to 2025/26
 COMPETITION_SEASONS = {
     4: [235, 281, 317, 318],
     5: [235, 281, 317, 318],
@@ -59,7 +60,7 @@ COMPETITION_SEASONS = {
     1607: [315],
     1778: [282, 315],
     1848: [281, 317, 318],
-    # ID 1865 removed as its seasons are in the future
+    1865: [318]
 }
 
 # (Archetype and Radar Dictionaries are placed here, exactly as they were in the previous version)
@@ -386,13 +387,11 @@ def create_comparison_radar_chart(players_data, radar_config):
         values += values[:1]
         return values
     
-    # Pre-defined color cycle for players
-    colors = ['#00f2ff', '#ff0052', '#00ff7f', '#ffc400', '#c800ff']
+    colors = ['#00f2ff', '#ff0052', '#00ff7f', '#ffc400', '#c800ff', '#f97306']
     
-    # Plot each player
     for i, player_data in enumerate(players_data):
         values = get_percentiles(player_data, metrics_dict)
-        color = colors[i % len(colors)] # Cycle through colors
+        color = colors[i % len(colors)]
         ax.fill(angles, values, color=color, alpha=0.25)
         ax.plot(angles, values, color=color, linewidth=2.5, label=f"{player_data['player_name']} ({player_data['season_name']})")
 
@@ -400,8 +399,8 @@ def create_comparison_radar_chart(players_data, radar_config):
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(labels, size=9, color='white')
     ax.set_rgrids([20, 40, 60, 80], color='gray', linestyle='--')
-    ax.set_title(radar_config['name'], size=16, weight='bold', y=1.1, color='white')
-    ax.legend(loc='upper right', bbox_to_anchor=(1.5, 1.15), labelcolor='white', fontsize=10)
+    ax.set_title(radar_config['name'], size=16, weight='bold', y=1.12, color='white')
+    ax.legend(loc='upper right', bbox_to_anchor=(1.6, 1.15), labelcolor='white', fontsize=10)
 
     return fig
 
@@ -413,13 +412,12 @@ if 'analysis_run' not in st.session_state:
     st.session_state.analysis_run = False
 if 'comparison_players' not in st.session_state:
     st.session_state.comparison_players = []
-# New state to hold selections for comparison tab to prevent resets
 if "comp_selections" not in st.session_state:
     st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
 
 with st.spinner("Loading and processing data for all leagues... This may take a moment."):
     raw_data, errors = get_all_leagues_data((USERNAME, PASSWORD))
-    # Error toasts are now removed for a cleaner interface
+    # FIX: Error toasts are now disabled for a cleaner interface
     if raw_data is not None:
         processed_data = process_data(raw_data)
     else:
@@ -534,31 +532,45 @@ with comparison_tab:
     st.header("Multi-Player Direct Comparison")
 
     if processed_data is not None:
-        # Reusable filter component with state for a smoother UX
-        def player_filter_ui(data, key_prefix):
-            leagues_and_seasons = data[['league_name', 'season_name']].drop_duplicates().sort_values(by=['league_name', 'season_name'])
-            leagues = sorted(leagues_and_seasons['league_name'].unique())
-            
-            # Use session state to remember selections
+        # State-aware filter UI for a smoother experience
+        def player_filter_ui_comp(data, key_prefix):
             state = st.session_state.comp_selections
             
-            selected_league = st.selectbox("League", leagues, key=f"{key_prefix}_league", index=leagues.index(state['league']) if state['league'] in leagues else None, placeholder="Choose a league")
-            state['league'] = selected_league
+            leagues = sorted(data['league_name'].dropna().unique())
             
-            selected_season, selected_team, selected_player_name = None, None, None
+            league_idx = leagues.index(state['league']) if state['league'] in leagues else None
+            selected_league = st.selectbox("League", leagues, key=f"{key_prefix}_league", index=league_idx, placeholder="Choose a league")
+            
+            if selected_league != state['league']:
+                state['league'] = selected_league
+                state['season'] = None
+                state['team'] = None
+                state['player'] = None
+                st.rerun()
 
             if state['league']:
                 league_df = data[data['league_name'] == state['league']]
                 seasons = sorted(league_df['season_name'].unique())
-                selected_season = st.selectbox("Season", seasons, key=f"{key_prefix}_season", index=seasons.index(state['season']) if state['season'] in seasons else None, placeholder="Choose a season")
-                state['season'] = selected_season
-            
+                season_idx = seasons.index(state['season']) if state['season'] in seasons else None
+                selected_season = st.selectbox("Season", seasons, key=f"{key_prefix}_season", index=season_idx, placeholder="Choose a season")
+                
+                if selected_season != state['season']:
+                    state['season'] = selected_season
+                    state['team'] = None
+                    state['player'] = None
+                    st.rerun()
+
             if state['season']:
                 season_df = data[(data['league_name'] == state['league']) & (data['season_name'] == state['season'])]
                 teams = ["All Teams"] + sorted(season_df['team_name'].unique())
-                selected_team = st.selectbox("Team", teams, key=f"{key_prefix}_team", index=teams.index(state['team']) if state['team'] in teams else 0)
-                state['team'] = selected_team
-            
+                team_idx = teams.index(state['team']) if state['team'] in teams else 0
+                selected_team = st.selectbox("Team", teams, key=f"{key_prefix}_team", index=team_idx)
+                
+                if selected_team != state['team']:
+                    state['team'] = selected_team
+                    state['player'] = None
+                    st.rerun()
+
             if state['team']:
                 if state['team'] != "All Teams":
                     player_pool = data[(data['league_name'] == state['league']) & (data['season_name'] == state['season']) & (data['team_name'] == state['team'])]
@@ -566,14 +578,15 @@ with comparison_tab:
                     player_pool = data[(data['league_name'] == state['league']) & (data['season_name'] == state['season'])]
                 
                 players = sorted(player_pool['player_name'].unique())
-                selected_player_name = st.selectbox("Player", players, key=f"{key_prefix}_player", index=None, placeholder="Choose a player")
+                player_idx = players.index(state['player']) if state['player'] in players else None
+                selected_player_name = st.selectbox("Player", players, key=f"{key_prefix}_player", index=player_idx, placeholder="Choose a player")
                 state['player'] = selected_player_name
             
-            if selected_player_name:
+            if state['player']:
                 player_instance = processed_data[
-                    (processed_data['player_name'] == selected_player_name) & 
-                    (processed_data['season_name'] == selected_season) &
-                    (processed_data['league_name'] == selected_league)
+                    (processed_data['player_name'] == state['player']) & 
+                    (processed_data['season_name'] == state['season']) &
+                    (processed_data['league_name'] == state['league'])
                 ]
                 if not player_instance.empty:
                     return player_instance.iloc[0]
@@ -581,12 +594,13 @@ with comparison_tab:
 
         with st.container(border=True):
             st.subheader("Add a Player to Comparison")
-            player_instance = player_filter_ui(processed_data, key_prefix="comp")
+            player_instance = player_filter_ui_comp(processed_data, key_prefix="comp")
 
             if st.button("Add Player", type="primary"):
                 if player_instance is not None:
                     if not any(player_instance.equals(p) for p in st.session_state.comparison_players):
                         st.session_state.comparison_players.append(player_instance)
+                        st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
                         st.rerun()
                     else:
                         st.warning("This player and season is already in the comparison.")
@@ -626,7 +640,6 @@ with comparison_tab:
             for i in range(num_radars):
                 with cols[i % 3]: 
                     radar_name, radar_config = radar_items[i]
-                    # Pass the whole list of players to the new chart function
                     fig = create_comparison_radar_chart(st.session_state.comparison_players, radar_config)
                     st.pyplot(fig, use_container_width=True)
     else:
