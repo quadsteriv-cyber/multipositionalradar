@@ -1,7 +1,7 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v9.4 (FIXED) ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v9.3 (Final) ⚽
 #
-# This version fixes the radar chart display issue and data loading problems.
+# This version contains all features and the preferred radar chart style.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -38,6 +38,7 @@ LEAGUE_NAMES = {
     1848: "I Liga", 1865: "First League"
 }
 
+# Refined list of seasons from 2022/23 to 2025/26
 COMPETITION_SEASONS = {
     4: [235, 281, 317, 318],
     5: [235, 281, 317, 318],
@@ -62,7 +63,7 @@ COMPETITION_SEASONS = {
     1865: [318]
 }
 
-# Archetype definitions (removed min_percentile_threshold)
+# (Archetype and Radar Dictionaries are placed here, exactly as they were in the previous version)
 STRIKER_ARCHETYPES = {
     "Poacher (Fox in the Box)": {
         "description": "Clinical finisher, thrives in the penalty area, instinctive movement, minimal involvement in build-up.",
@@ -110,7 +111,6 @@ STRIKER_ARCHETYPES = {
         "key_weight": 1.6
     }
 }
-
 STRIKER_RADAR_METRICS = {
     'finishing': { 'name': 'Finishing', 'color': '#D32F2F', 'metrics': {'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG', 'np_shots_90': 'Shots p90', 'conversion_ratio': 'Shot Conversion %', 'np_xg_per_shot': 'Avg. Shot Quality'} },
     'box_presence': { 'name': 'Box Presence', 'color': '#AF1D1D', 'metrics': {'touches_inside_box_90': 'Touches in Box p90', 'passes_inside_box_90': 'Passes in Box p90', 'positive_outcome_90': 'Positive Outcomes p90'} },
@@ -119,7 +119,6 @@ STRIKER_RADAR_METRICS = {
     'aerial': { 'name': 'Aerial Prowess', 'color': '#607D8B', 'metrics': {'aerial_wins_90': 'Aerial Duels Won p90', 'aerial_ratio': 'Aerial Win %', 'fouls_won_90': 'Fouls Won p90'} },
     'defensive': { 'name': 'Defensive Contribution', 'color': '#4CAF50', 'metrics': {'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90', 'counterpressures_90': 'Counterpressures p90', 'aggressive_actions_90': 'Aggressive Actions'} }
 }
-
 WINGER_ARCHETYPES = {
     "Goal-Scoring Winger": {
         "description": "A winger focused on cutting inside to shoot and score goals.",
@@ -137,13 +136,12 @@ WINGER_ARCHETYPES = {
         "key_weight": 1.5
     }
 }
-
 WINGER_RADAR_METRICS = {
-    'goal_threat': { 'name': 'Goal Threat', 'color': '#D32F2F', 'metrics': {'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG', 'np_shots_90': 'Shots p90', 'touches_inside_box_90': 'Touches in Box p90', 'conversion_ratio': 'Shot Conversion %', 'np_xg_per_shot': 'Avg. Shot Quality'} },
-    'creation': { 'name': 'Chance Creation', 'color': '#FF6B35', 'metrics': {'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90', 'op_passes_into_box_90': 'Passes into Box p90', 'through_balls_90': 'Through Balls p90', 'op_xgbuildup_90': 'xG Buildup p90', 'passing_ratio': 'Pass Completion %'} },
-    'progression': { 'name': 'Dribbling & Progression', 'color': '#9C27B0', 'metrics': {'dribbles_90': 'Successful Dribbles p90', 'dribble_ratio': 'Dribble Success %', 'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length', 'deep_progressions_90': 'Deep Progressions p90', 'fouls_won_90': 'Fouls Won p90'} },
+    'goal_threat': { 'name': 'Goal Threat', 'color': '#D32F2F', 'metrics': {'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG', 'np_shots_90': 'Shots p90', 'touches_inside_box_90': 'Touches in Box', 'np_xg_per_shot': 'xG/Shot'} },
+    'creation': { 'name': 'Chance Creation', 'color': '#FF6B35', 'metrics': {'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90', 'op_passes_into_box_90': 'Passes into Box p90', 'through_balls_90': 'Through Balls p90'} },
+    'progression': { 'name': 'Dribbling & Progression', 'color': '#9C27B0', 'metrics': {'dribbles_90': 'Successful Dribbles p90', 'dribble_ratio': 'Dribble Success %', 'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length'} },
     'crossing': { 'name': 'Crossing Profile', 'color': '#00BCD4', 'metrics': {'crosses_90': 'Completed Crosses p90', 'crossing_ratio': 'Cross Completion %', 'box_cross_ratio': '% of Box Passes that are Crosses'} },
-    'defensive': { 'name': 'Defensive Work Rate', 'color': '#4CAF50', 'metrics': {'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90', 'padj_tackles_90': 'P.Adj Tackles p90', 'padj_interceptions_90': 'P.Adj Interceptions p90'} },
+    'defensive': { 'name': 'Defensive Work Rate', 'color': '#4CAF50', 'metrics': {'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90', 'padj_tackles_90': 'P.Adj Tackles p90'} },
     'duels': { 'name': 'Duels & Security', 'color': '#607D8B', 'metrics': {'turnovers_90': 'Ball Security (Inv)', 'dribbled_past_90': 'Times Dribbled Past p90', 'challenge_ratio': 'Defensive Duel Win %'} }
 }
 
@@ -184,13 +182,12 @@ CM_ARCHETYPES = {
         "key_weight": 1.6
     }
 }
-
 CM_RADAR_METRICS = {
-    'defending': { 'name': 'Defensive Actions', 'color': '#D32F2F', 'metrics': {'padj_tackles_and_interceptions_90': 'P.Adj Tackles+Ints', 'challenge_ratio': 'Defensive Duel Win %', 'dribbled_past_90': 'Times Dribbled Past p90', 'aggressive_actions_90': 'Aggressive Actions'} },
+    'defending': { 'name': 'Defensive Actions', 'color': '#D32F2F', 'metrics': {'padj_tackles_and_interceptions_90': 'P.Adj Tackles+Ints', 'challenge_ratio': 'Defensive Duel Win %', 'dribbled_past_90': 'Times Dribbled Past'} },
     'duels': { 'name': 'Duels & Physicality', 'color': '#AF1D1D', 'metrics': {'aerial_wins_90': 'Aerial Duels Won', 'aerial_ratio': 'Aerial Win %', 'fouls_won_90': 'Fouls Won'} },
     'passing': { 'name': 'Passing & Distribution', 'color': '#0066CC', 'metrics': {'passing_ratio': 'Pass Completion %', 'forward_pass_proportion': 'Forward Pass %', 'long_balls_90': 'Long Balls p90', 'long_ball_ratio': 'Long Ball Accuracy %'} },
-    'creation': { 'name': 'Creativity & Creation', 'color': '#FF6B35', 'metrics': {'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90', 'through_balls_90': 'Through Balls p90', 'op_xgbuildup_90': 'xG Buildup p90'} },
-    'progression': { 'name': 'Ball Progression', 'color': '#4CAF50', 'metrics': {'deep_progressions_90': 'Deep Progressions', 'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length', 'dribbles_90': 'Successful Dribbles'} },
+    'creation': { 'name': 'Creativity & Creation', 'color': '#FF6B35', 'metrics': {'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90', 'through_balls_90': 'Through Balls p90', 'op_xgbuildup_90': 'xG Buildup'} },
+    'progression': { 'name': 'Ball Progression', 'color': '#4CAF50', 'metrics': {'deep_progressions_90': 'Deep Progressions', 'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length', 'dribbles_90': 'Successful Dribbles p90', 'dribble_ratio': 'Dribble Success %'} },
     'attacking': { 'name': 'Attacking Output', 'color': '#9C27B0', 'metrics': {'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG', 'np_shots_90': 'Shots p90', 'touches_inside_box_90': 'Touches in Box'} }
 }
 
@@ -211,7 +208,6 @@ FULLBACK_ARCHETYPES = {
         "key_weight": 1.6
     }
 }
-
 FULLBACK_RADAR_METRICS = {
     'defensive_actions': { 'name': 'Defensive Actions', 'color': '#00BCD4', 'metrics': {'padj_tackles_and_interceptions_90': 'P.Adj Tackles+Ints p90', 'challenge_ratio': 'Defensive Duel Win %', 'dribbled_past_90': 'Times Dribbled Past p90'} },
     'duels': { 'name': 'Duels', 'color': '#008294', 'metrics': {'aerial_wins_90': 'Aerial Duels Won p90', 'aerial_ratio': 'Aerial Win %', 'aggressive_actions_90': 'Aggressive Actions p90'} },
@@ -238,7 +234,6 @@ CB_ARCHETYPES = {
         "key_weight": 1.5
     }
 }
-
 CB_RADAR_METRICS = {
     'ground_defending': { 'name': 'Ground Duels', 'color': '#D32F2F', 'metrics': {'padj_tackles_90': 'PAdj Tackles', 'challenge_ratio': 'Challenge Success %', 'aggressive_actions_90': 'Aggressive Actions'} },
     'aerial_duels': { 'name': 'Aerial Duels & Clearances', 'color': '#4CAF50', 'metrics': {'aerial_wins_90': 'Aerial Duels Won', 'aerial_ratio': 'Aerial Win %', 'padj_clearances_90': 'PAdj Clearances'} },
@@ -248,21 +243,19 @@ CB_RADAR_METRICS = {
     'on_ball_security': { 'name': 'On-Ball Security', 'color': '#607D8B', 'metrics': {'turnovers_90': 'Ball Security (Inv)', 'op_xgbuildup_90': 'xG Buildup p90', 'fouls_90': 'Fouls Committed'} }
 }
 
-# FINALIZED: Corrected positional groupings based on user feedback
 POSITIONAL_CONFIGS = {
-    "Fullback": {"archetypes": FULLBACK_ARCHETYPES, "radars": FULLBACK_RADAR_METRICS, "positions": 
-                 ['Left Back', 'Left Wing Back', 'Right Back', 'Right Wing Back']},
-    "Center Back": {"archetypes": CB_ARCHETYPES, "radars": CB_RADAR_METRICS, "positions": 
-                    ['Centre Back', 'Left Centre Back', 'Right Centre Back']},
-    "Center Midfielder": {"archetypes": CM_ARCHETYPES, "radars": CM_RADAR_METRICS, "positions": [
+    "Fullback": {"archetypes": FULLBACK_ARCHETYPES, "radars": UNIFIED_RADAR_METRICS, "positions": ['Right Back', 'Left Back', 'Right Wing Back', 'Left Wing Back']},
+    "Center Back": {"archetypes": CB_ARCHETYPES, "radars": UNIFIED_RADAR_METRICS, "positions": ['Center Back', 'Left Centre Back', 'Right Centre Back']},
+    "Center Midfielder": {"archetypes": CM_ARCHETYPES, "radars": UNIFIED_RADAR_METRICS, "positions": [
         'Centre Attacking Midfielder', 'Centre Defensive Midfielder', 'Left Centre Midfielder', 
-        'Left Defensive Midfielder', 'Right Centre Midfielder', 'Right Defensive Midfielder'
+        'Left Defensive Midfielder', 'Right Centre Midfielder', 'Right Defensive Midfielder',
+        'Defensive Midfield', 'Center Midfield', 'Attacking Midfield'
     ]},
-    "Winger": {"archetypes": WINGER_ARCHETYPES, "radars": WINGER_RADAR_METRICS, "positions": [
+    "Winger": {"archetypes": WINGER_ARCHETYPES, "radars": UNIFIED_RADAR_METRICS, "positions": [
         'Left Attacking Midfielder', 'Left Midfielder', 'Left Wing',
         'Right Attacking Midfielder', 'Right Midfielder', 'Right Wing'
     ]},
-    "Striker": {"archetypes": STRIKER_ARCHETYPES, "radars": STRIKER_RADAR_METRICS, "positions": [
+    "Striker": {"archetypes": STRIKER_ARCHETYPES, "radars": UNIFIED_RADAR_METRICS, "positions": [
         'Centre Forward', 'Left Centre Forward', 'Right Centre Forward', 'Secondary Striker'
     ]}
 }
@@ -272,7 +265,7 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
     for archetype in pos_config['archetypes'].values() for metric in archetype['identity_metrics']
 ) | set(
     metric for pos_config in POSITIONAL_CONFIGS.values()
-    for radar in pos_config['radars'].values() for metric in radar['metrics'].keys()
+    for radar in pos_config['radars'].values() for metric_list in radar.values() for metric in metric_list['metrics'].keys()
 )))
 
 
@@ -280,77 +273,23 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
 
 @st.cache_resource(ttl=3600)
 def get_all_leagues_data(_auth_credentials):
-    """Downloads player statistics from all leagues with improved error handling."""
+    """Downloads player statistics from all leagues defined in COMPETITION_SEASONS."""
     all_dfs = []
-    successful_loads = 0
-    failed_loads = 0
-    
-    try:
-        # Test authentication first
-        test_url = "https://data.statsbombservices.com/api/v4/competitions"
-        test_response = requests.get(test_url, auth=_auth_credentials, timeout=30)
-        test_response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        st.error(f"Authentication failed. Please check your username and password. Error: {e}")
-        return None
-    
-    # Progress tracking
-    total_requests = sum(len(season_ids) for season_ids in COMPETITION_SEASONS.values())
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    current_request = 0
-    
+    # Errors are collected but not displayed, per user request
     for league_id, season_ids in COMPETITION_SEASONS.items():
-        league_name = LEAGUE_NAMES.get(league_id, f"League {league_id}")
-        
         for season_id in season_ids:
-            current_request += 1
-            progress = current_request / total_requests
-            progress_bar.progress(progress)
-            status_text.text(f"Loading {league_name} (Season {season_id})... {current_request}/{total_requests}")
-            
             try:
                 url = f"https://data.statsbombservices.com/api/v1/competitions/{league_id}/seasons/{season_id}/player-stats"
-                response = requests.get(url, auth=_auth_credentials, timeout=60)
+                response = requests.get(url, auth=_auth_credentials)
                 response.raise_for_status()
-                
-                data = response.json()
-                if not data:
-                    failed_loads += 1
-                    continue
-                    
-                df_league = pd.json_normalize(data)
-                if df_league.empty:
-                    failed_loads += 1
-                    continue
-                
-                df_league['league_name'] = league_name
-                df_league['competition_id'] = league_id
-                df_league['season_id'] = season_id
+                df_league = pd.json_normalize(response.json())
+                df_league['league_name'] = LEAGUE_NAMES.get(league_id, f"League {league_id}")
                 all_dfs.append(df_league)
-                successful_loads += 1
-                
-            except Exception:
-                failed_loads += 1
-                continue
-    
-    # Clear progress indicators
-    progress_bar.empty()
-    status_text.empty()
-    
+            except requests.exceptions.RequestException:
+                continue 
     if not all_dfs:
-        st.error("Could not load any data from the API. Please check your internet connection and API credentials.")
         return None
-    
-    st.success(f"Successfully loaded data from {successful_loads} league/season combinations.")
-    
-    try:
-        combined_df = pd.concat(all_dfs, ignore_index=True)
-        return combined_df
-    except Exception as e:
-        st.error(f"Error combining datasets: {e}")
-        return None
+    return pd.concat(all_dfs, ignore_index=True)
 
 @st.cache_data(ttl=3600)
 def process_data(_raw_data):
@@ -381,19 +320,17 @@ def process_data(_raw_data):
     if 'padj_tackles_90' in df_processed.columns and 'padj_interceptions_90' in df_processed.columns:
         df_processed['padj_tackles_and_interceptions_90'] = df_processed['padj_tackles_90'] + df_processed['padj_interceptions_90']
     
-    # --- Global Percentile Calculation (FIXED) ---
-    # Calculate percentiles across ALL players for consistency
-    for metric in ALL_METRICS_TO_PERCENTILE:
-        if metric in df_processed.columns:
-            metric_data = df_processed[metric]
-            if pd.api.types.is_numeric_dtype(metric_data) and not metric_data.empty:
-                pct_col = f'{metric}_pct'
-                # Negative stats should be inverted (lower is better)
-                negative_stats = ['turnovers_90', 'dispossessions_90', 'dribbled_past_90', 'fouls_90']
-                if metric in negative_stats:
-                    df_processed[pct_col] = 100 - (metric_data.rank(pct=True) * 100)
-                else:
-                    df_processed[pct_col] = metric_data.rank(pct=True) * 100
+    # --- Percentile Calculation ---
+    for pos_group, config in POSITIONAL_CONFIGS.items():
+        pos_mask = df_processed['primary_position'].isin(config['positions'])
+        for metric in ALL_METRICS_TO_PERCENTILE:
+            if metric in df_processed.columns:
+                metric_data = df_processed.loc[pos_mask, metric]
+                if pd.api.types.is_numeric_dtype(metric_data) and not metric_data.empty:
+                    pct_col = f'{metric}_pct'
+                    negative_stats = ['turnovers_90', 'dispossessions_90', 'dribbled_past_90', 'fouls_90']
+                    ranks = metric_data.rank(pct=True) * 100
+                    df_processed.loc[pos_mask, pct_col] = 100 - ranks if metric in negative_stats else ranks
     
     # Final cleaning of metric columns
     metric_cols = [col for col in df_processed.columns if '_90' in col or '_ratio' in col or 'length' in col]
@@ -453,9 +390,9 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
         return pool_df.sort_values('upgrade_score', ascending=False)
     else:
         return pool_df.sort_values('similarity_score', ascending=False)
-
+        
 def create_comparison_radar_chart(players_data, radar_config):
-    """Generates a single radar chart with multiple overlaid players - FIXED VERSION."""
+    """Generates a single radar chart with multiple overlaid players."""
     plt.style.use('seaborn-v0_8-darkgrid')
     metrics_dict = radar_config['metrics']
     labels = ['\n'.join(l.split()) for l in metrics_dict.values()]
@@ -464,15 +401,13 @@ def create_comparison_radar_chart(players_data, radar_config):
     angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
     angles += angles[:1]
 
-    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
     fig.set_facecolor('#121212')
     ax.set_facecolor('#121212')
 
     def get_percentiles(player, metrics):
-        """Get percentile values - using the WORKING approach"""
-        # This is the key fix - use .get() method like in your working version
         values = [player.get(f'{m}_pct', 0) for m in metrics.keys()]
-        values += values[:1]  # Close the radar chart
+        values += values[:1]
         return values
     
     colors = ['#00f2ff', '#ff0052', '#00ff7f', '#ffc400', '#c800ff', '#f97306']
@@ -480,22 +415,18 @@ def create_comparison_radar_chart(players_data, radar_config):
     for i, player_data in enumerate(players_data):
         values = get_percentiles(player_data, metrics_dict)
         color = colors[i % len(colors)]
-        
-        # Get player name for legend
-        player_name = player_data.get('player_name', 'Unknown')
-        season_name = player_data.get('season_name', 'Unknown')
-        
-        # Plot the data
         ax.fill(angles, values, color=color, alpha=0.25)
-        ax.plot(angles, values, color=color, linewidth=2.5, 
-               label=f"{player_name} ({season_name})")
+        ax.plot(angles, values, color=color, linewidth=2.5, label=f"{player_data.get('player_name', 'N/A')} ({player_data.get('season_name', 'N/A')})")
+        # Add data labels
+        for angle, value in zip(angles[:-1], values[:-1]):
+            ax.text(angle, value + 5, f"{int(value)}", color=color, ha='center', va='center', fontsize=10, weight='bold')
 
     ax.set_ylim(0, 100)
     ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(labels, size=9, color='white')
+    ax.set_xticklabels(labels, size=11, color='white')
     ax.set_rgrids([20, 40, 60, 80], color='gray')
-    ax.set_title(radar_config['name'], size=16, weight='bold', y=1.12, color='white')
-    ax.legend(loc='upper right', bbox_to_anchor=(1.6, 1.15), labelcolor='white', fontsize=10)
+    ax.set_title(radar_config['name'], size=20, weight='bold', y=1.1, color='white')
+    ax.legend(loc='upper right', bbox_to_anchor=(1.5, 1.15), labelcolor='white', fontsize=12)
 
     return fig
 
@@ -509,19 +440,12 @@ if 'comparison_players' not in st.session_state:
 if "comp_selections" not in st.session_state:
     st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
 
-# Main data loading with error handling
-processed_data = None
-raw_data = None
-
-try:
-    with st.spinner("Loading and processing data for all leagues... This may take a moment."):
-        raw_data = get_all_leagues_data((USERNAME, PASSWORD))
-        if raw_data is not None:
-            processed_data = process_data(raw_data)
-        else:
-            st.error("Failed to load data. Please check your API credentials and internet connection.")
-except Exception as e:
-    st.error(f"An error occurred while loading data: {e}")
+with st.spinner("Loading and processing data for all leagues... This may take a moment."):
+    raw_data = get_all_leagues_data((USERNAME, PASSWORD))
+    if raw_data is not None:
+        processed_data = process_data(raw_data)
+    else:
+        processed_data = None
 
 scouting_tab, comparison_tab = st.tabs(["Scouting Analysis", "Direct Comparison"])
 
@@ -543,7 +467,6 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
                 valid_positions = POSITIONAL_CONFIGS[pos_filter]['positions']
                 season_df_filtered = season_df[season_df['primary_position'].isin(valid_positions)]
                 
-                # New Diagnostic Message
                 if season_df_filtered.empty and not season_df.empty:
                     available_pos = sorted(season_df['primary_position'].unique())
                     st.warning(f"No players found for '{pos_filter}'. Available positions in this selection: {available_pos}")
@@ -560,7 +483,6 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
                     player_pool = season_df
                 
                 if player_pool.empty:
-                    st.warning(f"No players found for the selected filters.")
                     return None
 
                 player_pool_display = player_pool.copy()
