@@ -1,7 +1,9 @@
 streamlit
-requests
 pandas
 numpy
-matplotlib
+requests
+scikit-learn
 python-docx
-
+matplotlib
+seaborn
+rich
