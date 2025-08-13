@@ -1,9 +1,8 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v8.5 ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v8.7 ⚽
 #
-# This version fixes the matplotlib AttributeError and enhances the
-# Scouting Analysis filter to be position-aware, showing only relevant
-# players with their age and position in the dropdown.
+# This version fixes the archetype KeyError and adds a data cleaning
+# step to replace all NaN values in metric columns with 0.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -312,6 +311,12 @@ def process_data(_raw_data):
                     ranks = metric_data.rank(pct=True) * 100
                     df_processed.loc[pos_mask, pct_col] = 100 - ranks if metric in negative_stats else ranks
     
+    # NEW: Data Cleaning Step - Fill all missing metric/percentile data with 0
+    metric_cols = [col for col in df_processed.columns if '_90' in col or '_ratio' in col or 'length' in col]
+    pct_cols = [col for col in df_processed.columns if '_pct' in col]
+    cols_to_clean = list(set(metric_cols + pct_cols))
+    df_processed[cols_to_clean] = df_processed[cols_to_clean].fillna(0)
+    
     return df_processed
 
 
@@ -400,7 +405,7 @@ def create_comparison_radar_chart(players_data, radar_config):
     ax.set_ylim(0, 100)
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(labels, size=9, color='white')
-    ax.set_rgrids([20, 40, 60, 80], color='gray') # FIX: Removed linestyle='--'
+    ax.set_rgrids([20, 40, 60, 80], color='gray', linestyle='--')
     ax.set_title(radar_config['name'], size=16, weight='bold', y=1.12, color='white')
     ax.legend(loc='upper right', bbox_to_anchor=(1.6, 1.15), labelcolor='white', fontsize=10)
 
@@ -469,9 +474,12 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
                 selected_display_name = st.selectbox("Player", players, key=f"{key_prefix}_player", index=None, placeholder="Choose a player")
                 
                 if selected_display_name:
+                    # Map the display name back to the original data
                     player_instance = player_pool_display[player_pool_display['display_name'] == selected_display_name]
                     if not player_instance.empty:
-                        return player_instance.iloc[0]
+                        # Return the original data row, not the one with the extra 'display_name' column
+                        original_index = player_instance.index[0]
+                        return data.loc[original_index]
     return None
 
 with scouting_tab:
@@ -520,6 +528,7 @@ with scouting_tab:
                 
                 st.header(f"Analysis for: {tp['player_name']} ({tp['season_name']})")
                 
+                # FIX: Check if an archetype was detected before trying to display it
                 if st.session_state.detected_archetype:
                     st.subheader(f"Detected Archetype: {st.session_state.detected_archetype}")
                     col1, col2 = st.columns([1, 2])
@@ -615,6 +624,7 @@ with comparison_tab:
                 if player_instance is not None:
                     if not any(player_instance.equals(p) for p in st.session_state.comparison_players):
                         st.session_state.comparison_players.append(player_instance)
+                        # Reset selections for next addition
                         st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
                         st.rerun()
                     else:
