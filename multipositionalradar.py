@@ -1,8 +1,8 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v8.8 ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v8.9 ⚽
 #
-# This version adds an optional position filter to the scouting tab
-# and improves data cleaning for more robust player searching.
+# This version adds robust data cleaning (stripping whitespace) and a
+# diagnostic message to the filter UI to ensure players are always found.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -262,7 +262,7 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
 def get_all_leagues_data(_auth_credentials):
     """Downloads player statistics from all leagues defined in COMPETITION_SEASONS."""
     all_dfs = []
-    error_messages = [] 
+    # Errors are collected but not displayed, per user request
     for league_id, season_ids in COMPETITION_SEASONS.items():
         for season_id in season_ids:
             try:
@@ -273,11 +273,10 @@ def get_all_leagues_data(_auth_credentials):
                 df_league['league_name'] = LEAGUE_NAMES.get(league_id, f"League {league_id}")
                 all_dfs.append(df_league)
             except requests.exceptions.RequestException:
-                error_messages.append(f"Could not load L-{league_id} S-{season_id}")
                 continue 
     if not all_dfs:
-        return None, error_messages
-    return pd.concat(all_dfs, ignore_index=True), error_messages
+        return None
+    return pd.concat(all_dfs, ignore_index=True)
 
 @st.cache_data(ttl=3600)
 def process_data(_raw_data):
@@ -285,6 +284,16 @@ def process_data(_raw_data):
     if _raw_data is None:
         return None
 
+    # --- Data Cleaning ---
+    df_processed = _raw_data.copy()
+    df_processed.columns = [c.replace('player_season_', '') for c in df_processed.columns]
+    
+    # Clean string columns
+    for col in ['player_name', 'team_name', 'league_name', 'season_name', 'primary_position']:
+        if col in df_processed.columns:
+            df_processed[col] = df_processed[col].str.strip()
+
+    # --- Age Calculation ---
     def calculate_age_from_birth_date(birth_date_str):
         if pd.isna(birth_date_str): return None
         try:
@@ -292,14 +301,13 @@ def process_data(_raw_data):
             today = date.today()
             return today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
         except (ValueError, TypeError): return None
-
-    df_processed = _raw_data.copy()
-    df_processed.columns = [c.replace('player_season_', '') for c in df_processed.columns]
     df_processed['age'] = df_processed['birth_date'].apply(calculate_age_from_birth_date)
     
+    # --- Metric Calculation ---
     if 'padj_tackles_90' in df_processed.columns and 'padj_interceptions_90' in df_processed.columns:
         df_processed['padj_tackles_and_interceptions_90'] = df_processed['padj_tackles_90'] + df_processed['padj_interceptions_90']
     
+    # --- Percentile Calculation ---
     for pos_group, config in POSITIONAL_CONFIGS.items():
         pos_mask = df_processed['primary_position'].isin(config['positions'])
         for metric in ALL_METRICS_TO_PERCENTILE:
@@ -311,7 +319,7 @@ def process_data(_raw_data):
                     ranks = metric_data.rank(pct=True) * 100
                     df_processed.loc[pos_mask, pct_col] = 100 - ranks if metric in negative_stats else ranks
     
-    # NEW: Data Cleaning Step - Fill all missing metric/percentile data with 0
+    # Final cleaning of metric columns
     metric_cols = [col for col in df_processed.columns if '_90' in col or '_ratio' in col or 'length' in col]
     pct_cols = [col for col in df_processed.columns if '_pct' in col]
     cols_to_clean = list(set(metric_cols + pct_cols))
@@ -374,7 +382,6 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
     else:
         return pool_df.sort_values('similarity_score', ascending=False)
         
-# NEW: Overlaid radar chart function based on user's preferred code
 def create_comparison_radar_chart(players_data, radar_config):
     """Generates a single radar chart with multiple overlaid players."""
     plt.style.use('seaborn-v0_8-darkgrid')
@@ -405,7 +412,7 @@ def create_comparison_radar_chart(players_data, radar_config):
     ax.set_ylim(0, 100)
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(labels, size=9, color='white')
-    ax.set_rgrids([20, 40, 60, 80], color='gray') # FIX: Removed linestyle='--'
+    ax.set_rgrids([20, 40, 60, 80], color='gray', linestyle='--')
     ax.set_title(radar_config['name'], size=16, weight='bold', y=1.12, color='white')
     ax.legend(loc='upper right', bbox_to_anchor=(1.6, 1.15), labelcolor='white', fontsize=10)
 
@@ -414,7 +421,6 @@ def create_comparison_radar_chart(players_data, radar_config):
 # --- 6. STREAMLIT APP LAYOUT ---
 st.title("⚽ Advanced Multi-Position Player Analysis Tool")
 
-# Initialize session state for a smoother UX
 if 'analysis_run' not in st.session_state:
     st.session_state.analysis_run = False
 if 'comparison_players' not in st.session_state:
@@ -424,7 +430,6 @@ if "comp_selections" not in st.session_state:
 
 with st.spinner("Loading and processing data for all leagues... This may take a moment."):
     raw_data, errors = get_all_leagues_data((USERNAME, PASSWORD))
-    # FIX: Error toasts are now disabled for a cleaner interface
     if raw_data is not None:
         processed_data = process_data(raw_data)
     else:
@@ -434,8 +439,7 @@ scouting_tab, comparison_tab = st.tabs(["Scouting Analysis", "Direct Comparison"
 
 # Reusable filter component with position-awareness
 def create_player_filter_ui(data, key_prefix, pos_filter=None):
-    leagues_and_seasons = data[['league_name', 'season_name']].drop_duplicates().sort_values(by=['league_name', 'season_name'])
-    leagues = sorted(leagues_and_seasons['league_name'].unique())
+    leagues = sorted(data['league_name'].dropna().unique())
     
     selected_league = st.selectbox("League", leagues, key=f"{key_prefix}_league", index=None, placeholder="Choose a league")
     
@@ -447,7 +451,6 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
         if selected_season:
             season_df = league_df[league_df['season_name'] == selected_season]
             
-            # IMPROVEMENT: Filter player pool by selected position in sidebar
             if pos_filter:
                 valid_positions = POSITIONAL_CONFIGS[pos_filter]['positions']
                 season_df = season_df[season_df['primary_position'].isin(valid_positions)]
@@ -465,17 +468,14 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
                     st.warning(f"No players found for the position '{pos_filter}' in the selected team/season.")
                     return None
 
-                # IMPROVEMENT: Display name includes age and position
                 player_pool_display = player_pool.copy()
-                # FIX: Handle potential float ages before converting to int to prevent TypeError
                 player_pool_display['age_str'] = player_pool_display['age'].apply(lambda x: str(int(x)) if pd.notna(x) else 'N/A')
-                player_pool_display['display_name'] = player_pool_display['player_name'] + " (" + player_pool_display['age_str'] + ", " + player_pool_display['primary_position'] + ")"
+                player_pool_display['display_name'] = player_pool_display['player_name'] + " (" + player_pool_display['age_str'] + ", " + player_pool_display['primary_position'].fillna('N/A') + ")"
                 
                 players = sorted(player_pool_display['display_name'].unique())
                 selected_display_name = st.selectbox("Player", players, key=f"{key_prefix}_player", index=None, placeholder="Choose a player")
                 
                 if selected_display_name:
-                    # Map the display name back to the original data
                     player_instance_df = player_pool_display[player_pool_display['display_name'] == selected_display_name]
                     if not player_instance_df.empty:
                         original_index = player_instance_df.index[0]
@@ -490,7 +490,6 @@ with scouting_tab:
         selected_pos = st.sidebar.selectbox("1. Select a Position to Analyze", pos_options, key="scout_pos")
         
         st.sidebar.subheader("Select Target Player")
-        # Pass the selected position to the filter UI
         target_player = create_player_filter_ui(processed_data, key_prefix="scout", pos_filter=selected_pos)
         
         search_mode = st.sidebar.radio("Search Mode", ('Find Similar Players', 'Find Potential Upgrades'), key='scout_mode')
@@ -528,7 +527,6 @@ with scouting_tab:
                 
                 st.header(f"Analysis for: {tp['player_name']} ({tp['season_name']})")
                 
-                # FIX: Check if an archetype was detected before trying to display it
                 if st.session_state.detected_archetype:
                     st.subheader(f"Detected Archetype: {st.session_state.detected_archetype}")
                     col1, col2 = st.columns([1, 2])
@@ -559,7 +557,6 @@ with comparison_tab:
     st.header("Multi-Player Direct Comparison")
 
     if processed_data is not None:
-        # State-aware filter UI for a smoother experience
         def player_filter_ui_comp(data, key_prefix):
             state = st.session_state.comp_selections
             
@@ -624,7 +621,6 @@ with comparison_tab:
                 if player_instance is not None:
                     if not any(player_instance.equals(p) for p in st.session_state.comparison_players):
                         st.session_state.comparison_players.append(player_instance)
-                        # Reset selections for next addition
                         st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
                         st.rerun()
                     else:
