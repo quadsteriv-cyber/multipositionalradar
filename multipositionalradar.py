@@ -1,8 +1,8 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v6.9 ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v7.0 ⚽
 #
-# This version fixes the Streamlit CacheReplayClosureError by separating
-# the nested cached functions into top-level functions.
+# This version fixes the Streamlit CacheReplayClosureError by moving UI
+# elements (st.toast) out of the cached data-loading function.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -267,6 +267,7 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
 def get_all_leagues_data(_auth_credentials):
     """Downloads player statistics from all leagues defined in COMPETITION_SEASONS."""
     all_dfs = []
+    error_messages = [] # Collect errors here instead of using st.toast
     for league_id, season_ids in COMPETITION_SEASONS.items():
         for season_id in season_ids:
             try:
@@ -277,12 +278,12 @@ def get_all_leagues_data(_auth_credentials):
                 df_league['league_name'] = LEAGUE_NAMES.get(league_id, f"League {league_id}")
                 all_dfs.append(df_league)
             except requests.exceptions.RequestException as e:
-                st.toast(f"Failed to load data for league {league_id}, season {season_id}: {e}", icon="⚠️")
+                # Collect error message instead of calling st.toast
+                error_messages.append(f"Could not load L-{league_id} S-{season_id}: {e}")
                 continue 
     if not all_dfs:
-        st.error("No league data could be loaded. Check API credentials or league/season IDs.")
-        return None
-    return pd.concat(all_dfs, ignore_index=True)
+        return None, error_messages
+    return pd.concat(all_dfs, ignore_index=True), error_messages
 
 @st.cache_data(ttl=3600)
 def process_data(_raw_data):
@@ -425,7 +426,11 @@ def create_enhanced_radar_chart(player_data, reference_player, radar_config):
 st.title("⚽ Advanced Multi-Position Player Analysis Tool")
 
 with st.spinner("Loading and processing data for all leagues... This may take a moment."):
-    raw_data = get_all_leagues_data((USERNAME, PASSWORD))
+    raw_data, errors = get_all_leagues_data((USERNAME, PASSWORD))
+    if errors:
+        for error in errors:
+            st.toast(error, icon="⚠️")
+            
     if raw_data is not None:
         processed_data = process_data(raw_data)
     else:
@@ -491,6 +496,7 @@ with scouting_tab:
                 
                 config = POSITIONAL_CONFIGS[selected_pos]
                 archetypes = config["archetypes"]
+                # Use the full dataset for the similarity pool, not the filtered one
                 position_pool = processed_data[processed_data['primary_position'].isin(config['positions'])]
 
                 detected_archetype, dna_df = detect_player_archetype(target_player, archetypes)
