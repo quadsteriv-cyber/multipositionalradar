@@ -1,8 +1,9 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v8.3 (Final) ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v8.5 ⚽
 #
-# This version corrects the season list, improves the comparison tab's
-# UI for a smoother workflow, and contains no other known errors.
+# This version fixes the matplotlib AttributeError and enhances the
+# Scouting Analysis filter to be position-aware, showing only relevant
+# players with their age and position in the dropdown.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -14,7 +15,7 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 import warnings
 from sklearn.metrics.pairwise import cosine_similarity
-from datetime import date # <-- FIX: Added missing import
+from datetime import date
 
 warnings.filterwarnings('ignore')
 
@@ -39,7 +40,7 @@ LEAGUE_NAMES = {
     1848: "I Liga", 1865: "First League"
 }
 
-# FINALIZED: Corrected list of seasons from 2022/23 to 2025/26
+# Refined list of seasons from 2022/23 to 2025/26
 COMPETITION_SEASONS = {
     4: [235, 281, 317, 318],
     5: [235, 281, 317, 318],
@@ -399,7 +400,7 @@ def create_comparison_radar_chart(players_data, radar_config):
     ax.set_ylim(0, 100)
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(labels, size=9, color='white')
-    ax.set_rgrids([20, 40, 60, 80], color='gray', linestyle='--')
+    ax.set_rgrids([20, 40, 60, 80], color='gray') # FIX: Removed linestyle='--'
     ax.set_title(radar_config['name'], size=16, weight='bold', y=1.12, color='white')
     ax.legend(loc='upper right', bbox_to_anchor=(1.6, 1.15), labelcolor='white', fontsize=10)
 
@@ -418,7 +419,7 @@ if "comp_selections" not in st.session_state:
 
 with st.spinner("Loading and processing data for all leagues... This may take a moment."):
     raw_data, errors = get_all_leagues_data((USERNAME, PASSWORD))
-    # FIX: Error toasts are now disabled for a cleaner interface
+    # Error toasts are now disabled for a cleaner interface
     if raw_data is not None:
         processed_data = process_data(raw_data)
     else:
@@ -426,8 +427,8 @@ with st.spinner("Loading and processing data for all leagues... This may take a 
 
 scouting_tab, comparison_tab = st.tabs(["Scouting Analysis", "Direct Comparison"])
 
-# Reusable filter component
-def create_player_filter_ui(data, key_prefix):
+# Reusable filter component with position-awareness
+def create_player_filter_ui(data, key_prefix, pos_filter=None):
     leagues_and_seasons = data[['league_name', 'season_name']].drop_duplicates().sort_values(by=['league_name', 'season_name'])
     leagues = sorted(leagues_and_seasons['league_name'].unique())
     
@@ -440,6 +441,12 @@ def create_player_filter_ui(data, key_prefix):
         
         if selected_season:
             season_df = league_df[league_df['season_name'] == selected_season]
+            
+            # IMPROVEMENT: Filter player pool by selected position in sidebar
+            if pos_filter:
+                valid_positions = POSITIONAL_CONFIGS[pos_filter]['positions']
+                season_df = season_df[season_df['primary_position'].isin(valid_positions)]
+
             teams = ["All Teams"] + sorted(season_df['team_name'].unique())
             selected_team = st.selectbox("Team", teams, key=f"{key_prefix}_team")
             
@@ -449,11 +456,20 @@ def create_player_filter_ui(data, key_prefix):
                 else:
                     player_pool = season_df
                 
-                players = sorted(player_pool['player_name'].unique())
-                selected_player_name = st.selectbox("Player", players, key=f"{key_prefix}_player", index=None, placeholder="Choose a player")
+                if player_pool.empty:
+                    st.warning(f"No players found for the position '{pos_filter}' in the selected team/season.")
+                    return None
+
+                # IMPROVEMENT: Display name includes age and position
+                player_pool_display = player_pool.copy()
+                player_pool_display['age_str'] = player_pool_display['age'].apply(lambda x: str(int(x)) if pd.notna(x) else 'N/A')
+                player_pool_display['display_name'] = player_pool_display['player_name'] + " (" + player_pool_display['age_str'] + ", " + player_pool_display['primary_position'] + ")"
                 
-                if selected_player_name:
-                    player_instance = player_pool[player_pool['player_name'] == selected_player_name]
+                players = sorted(player_pool_display['display_name'].unique())
+                selected_display_name = st.selectbox("Player", players, key=f"{key_prefix}_player", index=None, placeholder="Choose a player")
+                
+                if selected_display_name:
+                    player_instance = player_pool_display[player_pool_display['display_name'] == selected_display_name]
                     if not player_instance.empty:
                         return player_instance.iloc[0]
     return None
@@ -466,7 +482,8 @@ with scouting_tab:
         selected_pos = st.sidebar.selectbox("1. Select a Position to Analyze", pos_options, key="scout_pos")
         
         st.sidebar.subheader("Select Target Player")
-        target_player = create_player_filter_ui(processed_data, key_prefix="scout")
+        # Pass the selected position to the filter UI
+        target_player = create_player_filter_ui(processed_data, key_prefix="scout", pos_filter=selected_pos)
         
         search_mode = st.sidebar.radio("Search Mode", ('Find Similar Players', 'Find Potential Upgrades'), key='scout_mode')
         search_mode_logic = 'upgrade' if search_mode == 'Find Potential Upgrades' else 'similar'
@@ -544,9 +561,7 @@ with comparison_tab:
             
             if selected_league != state['league']:
                 state['league'] = selected_league
-                state['season'] = None
-                state['team'] = None
-                state['player'] = None
+                state['season'] = None; state['team'] = None; state['player'] = None
                 st.rerun()
 
             if state['league']:
@@ -557,8 +572,7 @@ with comparison_tab:
                 
                 if selected_season != state['season']:
                     state['season'] = selected_season
-                    state['team'] = None
-                    state['player'] = None
+                    state['team'] = None; state['player'] = None
                     st.rerun()
 
             if state['season']:
