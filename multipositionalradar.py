@@ -1,7 +1,16 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v9.4 (FIXED) ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v10.0 (Interactive Radars & Physical Profile) ⚽
 #
-# This version fixes the radar chart display issue and data loading problems.
+# Changes in this version (per user request):
+# - Keep ALL data logic, archetypes, positions, and names intact.
+# - ONLY change metrics displayed on the radar charts: now exactly 6 radars per position,
+#   with one radar in each position focusing on PHYSICAL metrics (aerials/carries/duels),
+#   using only metrics already present in this document.
+# - Switch radar charts to Plotly-based interactive radars.
+#   * Hover over LEGEND name → highlight that player's radar, dim others.
+#   * Show percentile labels ON CHART only for the hovered player (not always-on).
+#   * Clear margins/spacing so text doesn’t overlap titles.
+# - No changes to statistical analysis or debugging logic.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -9,11 +18,15 @@ import streamlit as st
 import requests
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from io import BytesIO
 import warnings
 from sklearn.metrics.pairwise import cosine_similarity
 from datetime import date
+
+# New: Plotly + HTML component for legend-hover interactivity
+import plotly.graph_objects as go
+import plotly.io as pio
+import uuid
+import streamlit.components.v1 as components
 
 warnings.filterwarnings('ignore')
 
@@ -62,7 +75,7 @@ COMPETITION_SEASONS = {
     1865: [318]
 }
 
-# Archetype definitions (removed min_percentile_threshold)
+# Archetype definitions (unchanged)
 STRIKER_ARCHETYPES = {
     "Poacher (Fox in the Box)": {
         "description": "Clinical finisher, thrives in the penalty area, instinctive movement, minimal involvement in build-up.",
@@ -111,86 +124,62 @@ STRIKER_ARCHETYPES = {
     }
 }
 
-# ----------------------------
-# UPDATED RADAR METRIC GROUPS
-# ----------------------------
+# --- RADAR METRICS (UPDATED ONLY FOR METRICS INSIDE CHARTS) ---
+# IMPORTANT: Names/titles remain EXACTLY the same to preserve continuity.
+# Each position has 6 radars; one of those 6 is now a "physical" profile by its METRICS (name unchanged).
 
 STRIKER_RADAR_METRICS = {
     'finishing': {
-        'name': 'Finishing',
-        'color': '#D32F2F',
+        'name': 'Finishing', 'color': '#D32F2F',
         'metrics': {
-            'npg_90': 'Non-Penalty Goals',
-            'np_xg_90': 'Non-Penalty xG',
-            'np_shots_90': 'Shots p90',
-            'conversion_ratio': 'Shot Conversion %',
-            'np_xg_per_shot': 'Avg. Shot Quality',
-            'shot_touch_ratio': 'Shot per Touch %'
+            'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG',
+            'np_shots_90': 'Shots p90', 'conversion_ratio': 'Shot Conversion %',
+            'np_xg_per_shot': 'Avg. Shot Quality', 'touches_inside_box_90': 'Touches in Box p90'
         }
     },
     'box_presence': {
-        'name': 'Box Presence',
-        'color': '#AF1D1D',
+        'name': 'Box Presence', 'color': '#AF1D1D',
         'metrics': {
             'touches_inside_box_90': 'Touches in Box p90',
             'passes_inside_box_90': 'Passes in Box p90',
             'positive_outcome_90': 'Positive Outcomes p90',
-            'np_shots_90': 'Shots p90',
+            'shot_touch_ratio': 'Shot/Touch %',
             'op_passes_into_box_90': 'Passes into Box p90',
-            'dribbles_90': 'Successful Dribbles p90',
-            'deep_progressions_90': 'Deep Progressions p90'
+            'np_xg_per_shot': 'Avg. Shot Quality'
         }
     },
     'creation': {
-        'name': 'Creation & Link-Up',
-        'color': '#FF6B35',
+        'name': 'Creation & Link-Up', 'color': '#FF6B35',
         'metrics': {
-            'key_passes_90': 'Key Passes p90',
-            'xa_90': 'xA p90',
-            'op_passes_into_box_90': 'Passes into Box p90',
-            'through_balls_90': 'Through Balls p90',
-            'op_xgbuildup_90': 'xG Buildup p90',
-            'passing_ratio': 'Pass Completion %',
-            'deep_progressions_90': 'Deep Progressions p90'
+            'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90',
+            'op_passes_into_box_90': 'Passes into Box p90', 'through_balls_90': 'Through Balls p90',
+            'op_xgbuildup_90': 'xG Buildup p90', 'passing_ratio': 'Pass Completion %'
         }
     },
     'dribbling': {
-        'name': 'Dribbling & Carrying',
-        'color': '#9C27B0',
+        'name': 'Dribbling & Carrying', 'color': '#9C27B0',
         'metrics': {
-            'dribbles_90': 'Successful Dribbles p90',
-            'dribble_ratio': 'Dribble Success %',
-            'carries_90': 'Ball Carries p90',
-            'carry_length': 'Avg. Carry Length',
-            'turnovers_90': 'Ball Security (Inv)',
-            'deep_progressions_90': 'Deep Progressions p90',
+            'dribbles_90': 'Successful Dribbles p90', 'dribble_ratio': 'Dribble Success %',
+            'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length',
+            'turnovers_90': 'Ball Security (Inv)', 'deep_progressions_90': 'Deep Progressions p90'
+        }
+    },
+    # PHYSICAL profile (keep name 'aerial' unchanged; metrics emphasize physicality)
+    'aerial': {
+        'name': 'Aerial Prowess', 'color': '#607D8B',
+        'metrics': {
+            'aerial_wins_90': 'Aerial Duels Won p90', 'aerial_ratio': 'Aerial Win %',
+            'aggressive_actions_90': 'Aggressive Actions p90', 'challenge_ratio': 'Defensive Duel Win %',
+            'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length',
             'fouls_won_90': 'Fouls Won p90'
         }
     },
-    'aerial': {
-        'name': 'Aerial Prowess',
-        'color': '#607D8B',
-        'metrics': {
-            'aerial_wins_90': 'Aerial Duels Won p90',
-            'aerial_ratio': 'Aerial Win %',
-            'fouls_won_90': 'Fouls Won p90',
-            'challenge_ratio': 'Defensive Duel Win %',
-            'padj_tackles_90': 'PAdj Tackles p90',
-            'pressures_90': 'Pressures p90',
-            'aggressive_actions_90': 'Aggressive Actions'
-        }
-    },
     'defensive': {
-        'name': 'Defensive Contribution',
-        'color': '#4CAF50',
+        'name': 'Defensive Contribution', 'color': '#4CAF50',
         'metrics': {
-            'pressures_90': 'Pressures p90',
-            'pressure_regains_90': 'Pressure Regains p90',
-            'counterpressures_90': 'Counterpressures p90',
-            'aggressive_actions_90': 'Aggressive Actions',
-            'padj_tackles_90': 'PAdj Tackles p90',
-            'fouls_90': 'Fouls Committed p90',
-            'padj_interceptions_90': 'PAdj Interceptions p90'
+            'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90',
+            'counterpressures_90': 'Counterpressures p90', 'aggressive_actions_90': 'Aggressive Actions',
+            'padj_tackles_90': 'P.Adj Tackles p90', 'dribbled_past_90': 'Times Dribbled Past p90'
         }
     }
 }
@@ -215,76 +204,53 @@ WINGER_ARCHETYPES = {
 
 WINGER_RADAR_METRICS = {
     'goal_threat': {
-        'name': 'Goal Threat',
-        'color': '#D32F2F',
+        'name': 'Goal Threat', 'color': '#D32F2F',
         'metrics': {
-            'npg_90': 'Non-Penalty Goals',
-            'np_xg_90': 'Non-Penalty xG',
-            'np_shots_90': 'Shots p90',
-            'touches_inside_box_90': 'Touches in Box p90',
-            'conversion_ratio': 'Shot Conversion %',
-            'np_xg_per_shot': 'Avg. Shot Quality'
+            'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG',
+            'np_shots_90': 'Shots p90', 'touches_inside_box_90': 'Touches in Box p90',
+            'conversion_ratio': 'Shot Conversion %', 'np_xg_per_shot': 'Avg. Shot Quality'
         }
     },
     'creation': {
-        'name': 'Chance Creation',
-        'color': '#FF6B35',
+        'name': 'Chance Creation', 'color': '#FF6B35',
         'metrics': {
-            'key_passes_90': 'Key Passes p90',
-            'xa_90': 'xA p90',
-            'op_passes_into_box_90': 'Passes into Box p90',
-            'through_balls_90': 'Through Balls p90',
-            'op_xgbuildup_90': 'xG Buildup p90',
-            'passing_ratio': 'Pass Completion %'
+            'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90',
+            'op_passes_into_box_90': 'Passes into Box p90', 'through_balls_90': 'Through Balls p90',
+            'op_xgbuildup_90': 'xG Buildup p90', 'passing_ratio': 'Pass Completion %'
         }
     },
     'progression': {
-        'name': 'Dribbling & Progression',
-        'color': '#9C27B0',
+        'name': 'Dribbling & Progression', 'color': '#9C27B0',
         'metrics': {
-            'dribbles_90': 'Successful Dribbles p90',
-            'dribble_ratio': 'Dribble Success %',
-            'carries_90': 'Ball Carries p90',
-            'carry_length': 'Avg. Carry Length',
-            'deep_progressions_90': 'Deep Progressions p90',
-            'fouls_won_90': 'Fouls Won p90'
+            'dribbles_90': 'Successful Dribbles p90', 'dribble_ratio': 'Dribble Success %',
+            'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length',
+            'deep_progressions_90': 'Deep Progressions p90', 'fouls_won_90': 'Fouls Won p90'
         }
     },
     'crossing': {
-        'name': 'Crossing Profile',
-        'color': '#00BCD4',
+        'name': 'Crossing Profile', 'color': '#00BCD4',
         'metrics': {
-            'crosses_90': 'Completed Crosses p90',
-            'crossing_ratio': 'Cross Completion %',
-            'box_cross_ratio': '% of Box Passes that are Crosses',
-            'op_passes_into_box_90': 'Passes into Box p90',
-            'key_passes_90': 'Key Passes p90',
-            'positive_outcome_90': 'Positive Outcomes p90',
-            'turnovers_90': 'Ball Security (Inv)'
+            'crosses_90': 'Completed Crosses p90', 'crossing_ratio': 'Cross Completion %',
+            'box_cross_ratio': '% of Box Passes that are Crosses', 'op_passes_into_box_90': 'Passes into Box p90',
+            'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90'
         }
     },
     'defensive': {
-        'name': 'Defensive Work Rate',
-        'color': '#4CAF50',
+        'name': 'Defensive Work Rate', 'color': '#4CAF50',
         'metrics': {
-            'pressures_90': 'Pressures p90',
-            'pressure_regains_90': 'Pressure Regains p90',
-            'padj_tackles_90': 'P.Adj Tackles p90',
-            'padj_interceptions_90': 'P.Adj Interceptions p90',
-            'challenge_ratio': 'Defensive Duel Win %',
-            'aggressive_actions_90': 'Aggressive Actions'
+            'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90',
+            'padj_tackles_90': 'P.Adj Tackles p90', 'padj_interceptions_90': 'P.Adj Interceptions p90',
+            'dribbled_past_90': 'Times Dribbled Past p90', 'aggressive_actions_90': 'Aggressive Actions'
         }
     },
+    # PHYSICAL profile (keep name 'duels' unchanged)
     'duels': {
-        'name': 'Duels & Security',
-        'color': '#607D8B',
+        'name': 'Duels & Security', 'color': '#607D8B',
         'metrics': {
-            'turnovers_90': 'Ball Security (Inv)',
-            'dribbled_past_90': 'Times Dribbled Past p90',
-            'challenge_ratio': 'Defensive Duel Win %',
-            'fouls_won_90': 'Fouls Won p90',
-            'aerial_wins_90': 'Aerial Duels Won',
-            'aerial_ratio': 'Aerial Win %'
+            'aerial_wins_90': 'Aerial Duels Won p90', 'aerial_ratio': 'Aerial Win %',
+            'challenge_ratio': 'Defensive Duel Win %', 'fouls_won_90': 'Fouls Won p90',
+            'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length',
+            'turnovers_90': 'Ball Security (Inv)'
         }
     }
 }
@@ -329,74 +295,54 @@ CM_ARCHETYPES = {
 
 CM_RADAR_METRICS = {
     'defending': {
-        'name': 'Defensive Actions',
-        'color': '#D32F2F',
+        'name': 'Defensive Actions', 'color': '#D32F2F',
         'metrics': {
             'padj_tackles_and_interceptions_90': 'P.Adj Tackles+Ints',
             'challenge_ratio': 'Defensive Duel Win %',
             'dribbled_past_90': 'Times Dribbled Past p90',
             'aggressive_actions_90': 'Aggressive Actions',
-            'pressures_90': 'Pressures p90',
-            'padj_interceptions_90': 'P.Adj Interceptions p90'
+            'pressures_90': 'Pressures p90'
         }
     },
+    # PHYSICAL profile (keep name 'duels' unchanged; expand set to be physical)
     'duels': {
-        'name': 'Duels & Physicality',
-        'color': '#AF1D1D',
+        'name': 'Duels & Physicality', 'color': '#AF1D1D',
         'metrics': {
-            'aerial_wins_90': 'Aerial Duels Won',
-            'aerial_ratio': 'Aerial Win %',
-            'fouls_won_90': 'Fouls Won',
-            'pressures_90': 'Pressures p90',
-            'padj_tackles_90': 'PAdj Tackles p90',
-            'fouls_90': 'Fouls Committed p90'
+            'aerial_wins_90': 'Aerial Duels Won', 'aerial_ratio': 'Aerial Win %',
+            'fouls_won_90': 'Fouls Won', 'challenge_ratio': 'Defensive Duel Win %',
+            'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length',
+            'aggressive_actions_90': 'Aggressive Actions'
         }
     },
     'passing': {
-        'name': 'Passing & Distribution',
-        'color': '#0066CC',
+        'name': 'Passing & Distribution', 'color': '#0066CC',
         'metrics': {
-            'passing_ratio': 'Pass Completion %',
-            'forward_pass_proportion': 'Forward Pass %',
-            'long_balls_90': 'Long Balls p90',
-            'long_ball_ratio': 'Long Ball Accuracy %',
-            'op_xgbuildup_90': 'xG Buildup p90',
-            'pass_length': 'Avg. Pass Length'
+            'passing_ratio': 'Pass Completion %', 'forward_pass_proportion': 'Forward Pass %',
+            'long_balls_90': 'Long Balls p90', 'long_ball_ratio': 'Long Ball Accuracy %',
+            'op_xgbuildup_90': 'xG Buildup p90'
         }
     },
     'creation': {
-        'name': 'Creativity & Creation',
-        'color': '#FF6B35',
+        'name': 'Creativity & Creation', 'color': '#FF6B35',
         'metrics': {
-            'key_passes_90': 'Key Passes p90',
-            'xa_90': 'xA p90',
-            'through_balls_90': 'Through Balls p90',
-            'op_xgbuildup_90': 'xG Buildup p90',
-            'op_passes_into_box_90': 'Passes into Box p90',
-            'long_balls_90': 'Long Balls p90'
+            'key_passes_90': 'Key Passes p90', 'xa_90': 'xA p90',
+            'through_balls_90': 'Through Balls p90', 'op_xgbuildup_90': 'xG Buildup p90',
+            'op_passes_into_box_90': 'Passes into Box p90'
         }
     },
     'progression': {
-        'name': 'Ball Progression',
-        'color': '#4CAF50',
+        'name': 'Ball Progression', 'color': '#4CAF50',
         'metrics': {
-            'deep_progressions_90': 'Deep Progressions',
-            'carries_90': 'Ball Carries p90',
-            'carry_length': 'Avg. Carry Length',
-            'dribbles_90': 'Successful Dribbles',
-            'forward_pass_proportion': 'Forward Pass %',
+            'deep_progressions_90': 'Deep Progressions', 'carries_90': 'Ball Carries p90',
+            'carry_length': 'Avg. Carry Length', 'dribbles_90': 'Successful Dribbles',
             'dribble_ratio': 'Dribble Success %'
         }
     },
     'attacking': {
-        'name': 'Attacking Output',
-        'color': '#9C27B0',
+        'name': 'Attacking Output', 'color': '#9C27B0',
         'metrics': {
-            'npg_90': 'Non-Penalty Goals',
-            'np_xg_90': 'Non-Penalty xG',
-            'np_shots_90': 'Shots p90',
-            'touches_inside_box_90': 'Touches in Box',
-            'conversion_ratio': 'Shot Conversion %',
+            'npg_90': 'Non-Penalty Goals', 'np_xg_90': 'Non-Penalty xG',
+            'np_shots_90': 'Shots p90', 'touches_inside_box_90': 'Touches in Box',
             'np_xg_per_shot': 'Avg. Shot Quality'
         }
     }
@@ -413,7 +359,7 @@ FULLBACK_ARCHETYPES = {
         "identity_metrics": ['padj_tackles_and_interceptions_90', 'challenge_ratio', 'aggressive_actions_90', 'pressures_90', 'aerial_wins_90', 'aerial_ratio'],
         "key_weight": 1.5
     },
-     "Modern Wingback": {
+    "Modern Wingback": {
         "description": "High energy player who covers huge distances, contributing in all phases of play.",
         "identity_metrics": ['deep_progressions_90', 'crosses_90', 'dribbles_90', 'padj_tackles_and_interceptions_90', 'pressures_90', 'xa_90'],
         "key_weight": 1.6
@@ -422,74 +368,51 @@ FULLBACK_ARCHETYPES = {
 
 FULLBACK_RADAR_METRICS = {
     'defensive_actions': {
-        'name': 'Defensive Actions',
-        'color': '#00BCD4',
+        'name': 'Defensive Actions', 'color': '#00BCD4',
         'metrics': {
             'padj_tackles_and_interceptions_90': 'P.Adj Tackles+Ints p90',
             'challenge_ratio': 'Defensive Duel Win %',
             'dribbled_past_90': 'Times Dribbled Past p90',
-            'padj_interceptions_90': 'P.Adj Interceptions p90',
             'pressures_90': 'Pressures p90',
-            'pressure_regains_90': 'Pressure Regains p90'
+            'aggressive_actions_90': 'Aggressive Actions p90'
         }
     },
+    # PHYSICAL profile (keep name 'duels' unchanged; physical emphasis)
     'duels': {
-        'name': 'Duels',
-        'color': '#008294',
+        'name': 'Duels', 'color': '#008294',
         'metrics': {
-            'aerial_wins_90': 'Aerial Duels Won p90',
-            'aerial_ratio': 'Aerial Win %',
-            'aggressive_actions_90': 'Aggressive Actions p90',
-            'fouls_90': 'Fouls Committed p90',
-            'challenge_ratio': 'Defensive Duel Win %',
-            'dribbled_past_90': 'Times Dribbled Past p90'
+            'aerial_wins_90': 'Aerial Duels Won p90', 'aerial_ratio': 'Aerial Win %',
+            'aggressive_actions_90': 'Aggressive Actions p90', 'fouls_won_90': 'Fouls Won p90',
+            'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length'
         }
     },
     'progression_creation': {
-        'name': 'Progression & Creation',
-        'color': '#FF6B35',
+        'name': 'Progression & Creation', 'color': '#FF6B35',
         'metrics': {
-            'deep_progressions_90': 'Deep Progressions p90',
-            'carries_90': 'Ball Carries p90',
-            'dribbles_90': 'Successful Dribbles p90',
-            'xa_90': 'xA p90',
-            'carry_length': 'Avg. Carry Length',
+            'deep_progressions_90': 'Deep Progressions p90', 'carries_90': 'Ball Carries p90',
+            'dribbles_90': 'Successful Dribbles p90', 'xa_90': 'xA p90',
             'op_passes_into_box_90': 'Passes into Box p90'
         }
     },
     'crossing': {
-        'name': 'Crossing',
-        'color': '#FFA735',
+        'name': 'Crossing', 'color': '#FFA735',
         'metrics': {
-            'crosses_90': 'Completed Crosses p90',
-            'crossing_ratio': 'Cross Completion %',
-            'box_cross_ratio': '% of Box Passes that are Crosses',
-            'op_passes_into_box_90': 'Passes into Box p90',
-            'key_passes_90': 'Key Passes p90',
-            'positive_outcome_90': 'Positive Outcomes p90'
+            'crosses_90': 'Completed Crosses p90', 'crossing_ratio': 'Cross Completion %',
+            'box_cross_ratio': '% of Box Passes that are Crosses', 'key_passes_90': 'Key Passes p90'
         }
     },
     'passing': {
-        'name': 'Passing & Buildup',
-        'color': '#9C27B0',
+        'name': 'Passing & Buildup', 'color': '#9C27B0',
         'metrics': {
-            'passing_ratio': 'Pass Completion %',
-            'op_xgbuildup_90': 'xG Buildup p90',
-            'key_passes_90': 'Key Passes p90',
-            'long_balls_90': 'Long Balls p90',
-            'long_ball_ratio': 'Long Ball Accuracy %',
-            'forward_pass_proportion': 'Forward Pass %'
+            'passing_ratio': 'Pass Completion %', 'op_xgbuildup_90': 'xG Buildup p90',
+            'key_passes_90': 'Key Passes p90', 'forward_pass_proportion': 'Forward Pass %'
         }
     },
     'work_rate': {
-        'name': 'Work Rate & Security',
-        'color': '#4CAF50',
+        'name': 'Work Rate & Security', 'color': '#4CAF50',
         'metrics': {
-            'pressures_90': 'Pressures p90',
-            'pressure_regains_90': 'Pressure Regains p90',
-            'turnovers_90': 'Ball Security (Inv)',
-            'carries_90': 'Ball Carries p90',
-            'dribbles_90': 'Successful Dribbles p90'
+            'pressures_90': 'Pressures p90', 'pressure_regains_90': 'Pressure Regains p90',
+            'turnovers_90': 'Ball Security (Inv)', 'dribbled_past_90': 'Times Dribbled Past p90'
         }
     }
 }
@@ -514,80 +437,53 @@ CB_ARCHETYPES = {
 
 CB_RADAR_METRICS = {
     'ground_defending': {
-        'name': 'Ground Duels',
-        'color': '#D32F2F',
+        'name': 'Ground Duels', 'color': '#D32F2F',
         'metrics': {
-            'padj_tackles_90': 'PAdj Tackles',
-            'challenge_ratio': 'Challenge Success %',
-            'aggressive_actions_90': 'Aggressive Actions',
-            'padj_interceptions_90': 'PAdj Interceptions',
-            'pressures_90': 'Pressures p90',
-            'fouls_90': 'Fouls Committed'
+            'padj_tackles_90': 'PAdj Tackles', 'challenge_ratio': 'Challenge Success %',
+            'aggressive_actions_90': 'Aggressive Actions', 'pressures_90': 'Pressures p90'
         }
     },
+    # PHYSICAL profile (keep name 'aerial_duels' unchanged; expand to physical)
     'aerial_duels': {
-        'name': 'Aerial Duels & Clearances',
-        'color': '#4CAF50',
+        'name': 'Aerial Duels & Clearances', 'color': '#4CAF50',
         'metrics': {
-            'aerial_wins_90': 'Aerial Duels Won',
-            'aerial_ratio': 'Aerial Win %',
-            'padj_clearances_90': 'PAdj Clearances',
-            'challenge_ratio': 'Challenge Success %',
-            'fouls_won_90': 'Fouls Won',
-            'dribbled_past_90': 'Times Dribbled Past p90'
+            'aerial_wins_90': 'Aerial Duels Won', 'aerial_ratio': 'Aerial Win %',
+            'padj_clearances_90': 'PAdj Clearances', 'fouls_won_90': 'Fouls Won',
+            'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length'
         }
     },
     'passing_distribution': {
-        'name': 'Passing & Distribution',
-        'color': '#0066CC',
+        'name': 'Passing & Distribution', 'color': '#0066CC',
         'metrics': {
-            'passing_ratio': 'Pass Completion %',
-            'pass_length': 'Avg. Pass Length',
-            'long_balls_90': 'Long Balls p90',
-            'long_ball_ratio': 'Long Ball Accuracy %',
-            'forward_pass_proportion': 'Forward Pass %',
-            'op_xgbuildup_90': 'xG Buildup p90'
+            'passing_ratio': 'Pass Completion %', 'pass_length': 'Avg. Pass Length',
+            'long_balls_90': 'Long Balls p90', 'long_ball_ratio': 'Long Ball Accuracy %',
+            'forward_pass_proportion': 'Forward Pass %'
         }
     },
     'ball_progression': {
-        'name': 'Ball Progression',
-        'color': '#FFC107',
+        'name': 'Ball Progression', 'color': '#FFC107',
         'metrics': {
-            'carries_90': 'Ball Carries p90',
-            'carry_length': 'Avg. Carry Length',
-            'deep_progressions_90': 'Deep Progressions',
-            'pass_length': 'Avg. Pass Length',
-            'op_xgbuildup_90': 'xG Buildup p90',
-            'long_balls_90': 'Long Balls p90'
+            'carries_90': 'Ball Carries p90', 'carry_length': 'Avg. Carry Length',
+            'deep_progressions_90': 'Deep Progressions', 'op_xgbuildup_90': 'xG Buildup p90'
         }
     },
     'defensive_positioning': {
-        'name': 'Defensive Positioning',
-        'color': '#00BCD4',
+        'name': 'Defensive Positioning', 'color': '#00BCD4',
         'metrics': {
-            'padj_interceptions_90': 'PAdj Interceptions',
-            'dribbled_past_90': 'Times Dribbled Past p90',
-            'pressure_regains_90': 'Pressure Regains',
-            'padj_clearances_90': 'PAdj Clearances',
-            'challenge_ratio': 'Challenge Success %',
-            'padj_tackles_90': 'PAdj Tackles'
+            'padj_interceptions_90': 'PAdj Interceptions', 'dribbled_past_90': 'Times Dribbled Past p90',
+            'pressure_regains_90': 'Pressure Regains', 'turnovers_90': 'Ball Security (Inv)'
         }
     },
     'on_ball_security': {
-        'name': 'On-Ball Security',
-        'color': '#607D8B',
+        'name': 'On-Ball Security', 'color': '#607D8B',
         'metrics': {
-            'turnovers_90': 'Ball Security (Inv)',
-            'op_xgbuildup_90': 'xG Buildup p90',
-            'fouls_90': 'Fouls Committed',
-            'passing_ratio': 'Pass Completion %',
-            'pressure_regains_90': 'Pressure Regains',
-            'pressures_90': 'Pressures p90'
+            'turnovers_90': 'Ball Security (Inv)', 'op_xgbuildup_90': 'xG Buildup p90',
+            'fouls_90': 'Fouls Committed', 'passing_ratio': 'Pass Completion %'
         }
     }
 }
 
-# FINALIZED: Corrected positional groupings based on user feedback
+# FINALIZED: Corrected positional groupings based on user feedback (unchanged)
 POSITIONAL_CONFIGS = {
     "Fullback": {"archetypes": FULLBACK_ARCHETYPES, "radars": FULLBACK_RADAR_METRICS, "positions": 
                  ['Left Back', 'Left Wing Back', 'Right Back', 'Right Wing Back']},
@@ -719,8 +615,7 @@ def process_data(_raw_data):
     if 'padj_tackles_90' in df_processed.columns and 'padj_interceptions_90' in df_processed.columns:
         df_processed['padj_tackles_and_interceptions_90'] = df_processed['padj_tackles_90'] + df_processed['padj_interceptions_90']
     
-    # --- Global Percentile Calculation (FIXED) ---
-    # Calculate percentiles across ALL players for consistency
+    # --- Global Percentile Calculation (unchanged) ---
     for metric in ALL_METRICS_TO_PERCENTILE:
         if metric in df_processed.columns:
             metric_data = df_processed[metric]
@@ -792,50 +687,209 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
     else:
         return pool_df.sort_values('similarity_score', ascending=False)
 
-def create_comparison_radar_chart(players_data, radar_config):
-    """Generates a single radar chart with multiple overlaid players - FIXED VERSION."""
-    plt.style.use('seaborn-v0_8-darkgrid')
+# --- Plotly Radar: Interactive with legend-hover highlighting and hover-only percentile labels ---
+
+def _radar_angles_labels(metrics_dict):
+    labels = list(metrics_dict.values())
+    metrics = list(metrics_dict.keys())
+    return metrics, labels
+
+def _player_percentiles_for_metrics(player_series, metrics):
+    return [float(player_series.get(f"{m}_pct", 0.0)) for m in metrics]
+
+def _build_scatterpolar_trace(player_series, metrics, player_label, color, show_text=False):
+    values = _player_percentiles_for_metrics(player_series, metrics)
+    # Close the radar by repeating the first point
+    values += values[:1]
+    theta = metrics + [metrics[0]]
+
+    # Text values are percentile integers; initially hidden (transparent); JS will reveal on legend hover
+    text_vals = [f"{int(round(v))}" for v in values]
+    text_vals[-1] = text_vals[0]  # closing point label same as first
+
+    trace = go.Scatterpolar(
+        r=values,
+        theta=theta,
+        mode="lines+markers+text",
+        name=player_label,
+        line=dict(width=2),
+        marker=dict(size=5),
+        text=text_vals if show_text else text_vals,
+        textfont=dict(size=11, color="rgba(0,0,0,0)"),  # invisible initially
+        textposition="top center",
+        hovertemplate="%{theta}<br>%{r:.0f}th percentile<extra>" + player_label + "</extra>",
+        fill="toself",
+        opacity=0.95,
+        legendgroup=player_label,
+        hoveron="points+fills"
+    )
+    # Assign color (line and fill)
+    trace.line.color = color
+    trace.fillcolor = color.replace('#', 'rgba(') if False else color  # will manage alpha via opacity
+    return trace
+
+def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
+    """
+    Returns a Plotly Figure for a single radar (one of the 6), with multiple players overlaid.
+    Legend hover will be handled via injected JS in render_plotly_with_legend_hover().
+    """
     metrics_dict = radar_config['metrics']
-    labels = ['\n'.join(l.split()) for l in metrics_dict.values()]
-    num_vars = len(labels)
-    
-    angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
-    angles += angles[:1]
+    group_name = radar_config['name']
+    base_color = radar_config.get('color', '#1f77b4')
 
-    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
-    fig.set_facecolor('#121212')
-    ax.set_facecolor('#121212')
+    metrics, labels = _radar_angles_labels(metrics_dict)
 
-    def get_percentiles(player, metrics):
-        """Get percentile values - using the WORKING approach"""
-        # This is the key fix - use .get() method like in your working version
-        values = [player.get(f'{m}_pct', 0) for m in metrics.keys()]
-        values += values[:1]  # Close the radar chart
-        return values
-    
-    colors = ['#00f2ff', '#ff0052', '#00ff7f', '#ffc400', '#c800ff', '#f97306']
-    
-    for i, player_data in enumerate(players_data):
-        values = get_percentiles(player_data, metrics_dict)
-        color = colors[i % len(colors)]
-        
-        # Get player name for legend
-        player_name = player_data.get('player_name', 'Unknown')
-        season_name = player_data.get('season_name', 'Unknown')
-        
-        # Plot the data
-        ax.fill(angles, values, color=color, alpha=0.25)
-        ax.plot(angles, values, color=color, linewidth=2.5, 
-               label=f"{player_name} ({season_name})")
+    # Distinct but harmonious colors (keep stable ordering)
+    palette = [
+        "#00f2ff", "#ff0052", "#00ff7f", "#ffc400",
+        "#c800ff", "#f97306", "#1E90FF", "#FF7F50"
+    ]
 
-    ax.set_ylim(0, 100)
-    ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(labels, size=9, color='white')
-    ax.set_rgrids([20, 40, 60, 80], color='gray')
-    ax.set_title(radar_config['name'], size=16, weight='bold', y=1.12, color='white')
-    ax.legend(loc='upper right', bbox_to_anchor=(1.6, 1.15), labelcolor='white', fontsize=10)
+    fig = go.Figure()
 
-    return fig
+    for i, player_series in enumerate(players_data):
+        player_name = player_series.get('player_name', 'Unknown')
+        season_name = player_series.get('season_name', 'Unknown')
+        label = f"{player_name} ({season_name})"
+        color = palette[i % len(palette)]
+        trace = _build_scatterpolar_trace(player_series, metrics, label, color, show_text=False)
+        fig.add_trace(trace)
+
+    fig.update_layout(
+        title=dict(
+            text=group_name,
+            x=0.5, xanchor='center',
+            y=0.95, yanchor='top',
+            font=dict(size=18, color="white"),
+            pad=dict(t=24, b=4, l=4, r=4)
+        ),
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            x=0.5, xanchor="center",
+            y=-0.15, yanchor="top",
+            font=dict(size=11, color="white"),
+            itemsizing="trace"
+        ),
+        polar=dict(
+            bgcolor=bg_color,
+            radialaxis=dict(range=[0, 100], showline=False, showticklabels=True, tickfont=dict(color="white", size=10),
+                            gridcolor="rgba(255,255,255,0.15)", tickangle=0),
+            angularaxis=dict(
+                tickvals=metrics,
+                ticktext=labels,
+                tickfont=dict(size=11, color="white"),
+                gridcolor="rgba(255,255,255,0.1)"
+            )
+        ),
+        paper_bgcolor=bg_color,
+        plot_bgcolor=bg_color,
+        margin=dict(t=80, b=90, l=40, r=40),
+        hovermode="closest"
+    )
+
+    # Extra padding below legend so labels never collide
+    fig.update_layout(height=520)
+
+    return fig, metrics
+
+def render_plotly_with_legend_hover(fig, metrics, height=520):
+    """
+    Renders Plotly fig inside Streamlit with custom JS to:
+    - On legend hover: highlight target trace (opacity 1.0, text visible), dim others (opacity ~0.2, text hidden).
+    - On legend unhover: reset opacities and hide text labels again.
+    - Percentile labels appear on-chart only for hovered player.
+    """
+    div_id = f"plotly-radar-{uuid.uuid4().hex}"
+    html = pio.to_html(fig, include_plotlyjs='cdn', full_html=False, div_id=div_id)
+    # Inject custom JS handlers
+    custom_js = f"""
+    <script>
+      (function() {{
+        const el = document.getElementById('{div_id}');
+        if (!el) return;
+        const resetStyles = () => {{
+          const gd = el;
+          const data = gd.data || [];
+          for (let i = 0; i < data.length; i++) {{
+            Plotly.restyle(gd, {{
+              'opacity': 0.95,
+              'textfont.color': 'rgba(0,0,0,0)',
+              'line.width': 2
+            }}, [i]);
+          }}
+        }};
+        el.addEventListener('plotly_afterplot', function() {{
+          resetStyles();
+        }});
+        el.on('plotly_legendhover', function(evt) {{
+          const gd = el;
+          const idx = evt.curveNumber;
+          if (idx == null) return;
+          const n = (gd.data || []).length;
+          for (let i = 0; i < n; i++) {{
+            if (i === idx) {{
+              Plotly.restyle(gd, {{
+                'opacity': 1.0,
+                'textfont.color': '#ffffff',
+                'line.width': 3.5
+              }}, [i]);
+            }} else {{
+              Plotly.restyle(gd, {{
+                'opacity': 0.2,
+                'textfont.color': 'rgba(0,0,0,0)',
+                'line.width': 2
+              }}, [i]);
+            }}
+          }}
+        }});
+        el.on('plotly_legendunhover', function(evt) {{
+          resetStyles();
+        }});
+        // Also allow legend click to isolate
+        el.on('plotly_legendclick', function(evt) {{
+          // Let Plotly handle visibility toggling; keep our styling consistent
+          setTimeout(() => {{
+            const gd = el;
+            const data = gd.data || [];
+            // If exactly one trace is visible, show its text; others hidden
+            const visibleIdx = [];
+            data.forEach((tr, i) => {{
+              if (tr.visible === true || tr.visible === undefined) visibleIdx.push(i);
+            }});
+            if (visibleIdx.length === 1) {{
+              for (let i = 0; i < data.length; i++) {{
+                Plotly.restyle(gd, {{
+                  'textfont.color': (i === visibleIdx[0]) ? '#ffffff' : 'rgba(0,0,0,0)',
+                  'opacity': (i === visibleIdx[0]) ? 1.0 : 0.2,
+                  'line.width': (i === visibleIdx[0]) ? 3.5 : 2
+                }}, [i]);
+              }}
+            }} else {{
+              // Reset when multiple visible
+              const n = data.length;
+              for (let i = 0; i < n; i++) {{
+                Plotly.restyle(gd, {{
+                  'textfont.color': 'rgba(0,0,0,0)',
+                  'opacity': 0.95,
+                  'line.width': 2
+                }}, [i]);
+              }}
+            }}
+          }}, 0);
+          return false; // allow default toggle
+        }});
+      }})();
+    </script>
+    """
+    # Wrap to ensure proper spacing beneath
+    wrapped = f"""
+    <div style="margin-bottom: 28px;">
+      {html}
+      {custom_js}
+    </div>
+    """
+    components.html(wrapped, height=height + 60, scrolling=False)
 
 # --- 6. STREAMLIT APP LAYOUT ---
 st.title("⚽ Advanced Multi-Position Player Analysis Tool")
@@ -881,7 +935,7 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
                 valid_positions = POSITIONAL_CONFIGS[pos_filter]['positions']
                 season_df_filtered = season_df[season_df['primary_position'].isin(valid_positions)]
                 
-                # New Diagnostic Message
+                # Diagnostic message unchanged
                 if season_df_filtered.empty and not season_df.empty:
                     available_pos = sorted(season_df['primary_position'].unique())
                     st.warning(f"No players found for '{pos_filter}'. Available positions in this selection: {available_pos}")
@@ -1091,15 +1145,15 @@ with comparison_tab:
             
             radars_to_show = POSITIONAL_CONFIGS[selected_radar_pos]['radars']
             
+            # Layout: 3 columns per row
             num_radars = len(radars_to_show)
             cols = st.columns(3) 
             radar_items = list(radars_to_show.items())
 
             for i in range(num_radars):
-                with cols[i % 3]: 
-                    radar_name, radar_config = radar_items[i]
-                    fig = create_comparison_radar_chart(st.session_state.comparison_players, radar_config)
-                    st.pyplot(fig, use_container_width=True)
+                with cols[i % 3]:
+                    radar_key, radar_config = radar_items[i]
+                    fig, metrics = create_plotly_radar(st.session_state.comparison_players, radar_config)
+                    render_plotly_with_legend_hover(fig, metrics, height=520)
     else:
         st.error("Data could not be loaded. Please check your API credentials and network connection.")
-
