@@ -1,8 +1,8 @@
 # ----------------------------------------------------------------------
 # ⚽ Advanced Multi-Position Player Analysis App v6.9 ⚽
 #
-# This version includes a fix for the KeyError that occurred when an
-# archetype could not be detected for a player.
+# This version fixes the Streamlit CacheReplayClosureError by separating
+# the nested cached functions into top-level functions.
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -262,31 +262,33 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
 
 # --- 4. DATA HANDLING & ANALYSIS FUNCTIONS (CACHED) ---
 
+# FIX: Moved the data fetching function to the top level to avoid CacheReplayClosureError.
+@st.cache_resource(ttl=3600)
+def get_all_leagues_data(_auth_credentials):
+    """Downloads player statistics from all leagues defined in COMPETITION_SEASONS."""
+    all_dfs = []
+    for league_id, season_ids in COMPETITION_SEASONS.items():
+        for season_id in season_ids:
+            try:
+                url = f"https://data.statsbombservices.com/api/v1/competitions/{league_id}/seasons/{season_id}/player-stats"
+                response = requests.get(url, auth=_auth_credentials)
+                response.raise_for_status()
+                df_league = pd.json_normalize(response.json())
+                df_league['league_name'] = LEAGUE_NAMES.get(league_id, f"League {league_id}")
+                all_dfs.append(df_league)
+            except requests.exceptions.RequestException as e:
+                st.toast(f"Failed to load data for league {league_id}, season {season_id}: {e}", icon="⚠️")
+                continue 
+    if not all_dfs:
+        st.error("No league data could be loaded. Check API credentials or league/season IDs.")
+        return None
+    return pd.concat(all_dfs, ignore_index=True)
+
 @st.cache_data(ttl=3600)
-def load_and_process_data():
-    """Decorator to cache the data loading and processing functions."""
-    
-    # --- Nested Data Functions ---
-    @st.cache_resource
-    def get_all_leagues_data(_auth_credentials):
-        """Downloads player statistics from all leagues defined in COMPETITION_SEASONS."""
-        all_dfs = []
-        for league_id, season_ids in COMPETITION_SEASONS.items():
-            for season_id in season_ids:
-                try:
-                    url = f"https://data.statsbombservices.com/api/v1/competitions/{league_id}/seasons/{season_id}/player-stats"
-                    response = requests.get(url, auth=_auth_credentials)
-                    response.raise_for_status()
-                    df_league = pd.json_normalize(response.json())
-                    df_league['league_name'] = LEAGUE_NAMES.get(league_id, f"League {league_id}")
-                    all_dfs.append(df_league)
-                except requests.exceptions.RequestException as e:
-                    st.toast(f"Failed to load data for league {league_id}, season {season_id}: {e}", icon="⚠️")
-                    continue 
-        if not all_dfs:
-            st.error("No league data could be loaded. Check API credentials or league/season IDs.")
-            return None
-        return pd.concat(all_dfs, ignore_index=True)
+def process_data(_raw_data):
+    """Processes the raw data to calculate ages and percentiles."""
+    if _raw_data is None:
+        return None
 
     def calculate_age_from_birth_date(birth_date_str):
         if pd.isna(birth_date_str): return None
@@ -296,14 +298,7 @@ def load_and_process_data():
             return today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
         except (ValueError, TypeError): return None
 
-    # --- Main Logic for load_and_process_data ---
-    st.write("Loading player data from StatsBomb API...")
-    raw_data = get_all_leagues_data((USERNAME, PASSWORD))
-    if raw_data is None:
-        return None
-        
-    st.write("Processing data and calculating percentiles...")
-    df_processed = raw_data.copy()
+    df_processed = _raw_data.copy()
     df_processed.columns = [c.replace('player_season_', '') for c in df_processed.columns]
     df_processed['age'] = df_processed['birth_date'].apply(calculate_age_from_birth_date)
     
@@ -321,7 +316,6 @@ def load_and_process_data():
                     ranks = metric_data.rank(pct=True) * 100
                     df_processed.loc[pos_mask, pct_col] = 100 - ranks if metric in negative_stats else ranks
     
-    st.success("Data loaded and processed successfully!")
     return df_processed
 
 
@@ -431,7 +425,11 @@ def create_enhanced_radar_chart(player_data, reference_player, radar_config):
 st.title("⚽ Advanced Multi-Position Player Analysis Tool")
 
 with st.spinner("Loading and processing data for all leagues... This may take a moment."):
-    processed_data = load_and_process_data()
+    raw_data = get_all_leagues_data((USERNAME, PASSWORD))
+    if raw_data is not None:
+        processed_data = process_data(raw_data)
+    else:
+        processed_data = None
 
 if 'analysis_run' not in st.session_state:
     st.session_state.analysis_run = False
@@ -493,7 +491,6 @@ with scouting_tab:
                 
                 config = POSITIONAL_CONFIGS[selected_pos]
                 archetypes = config["archetypes"]
-                # Use the full dataset for the similarity pool, not the filtered one
                 position_pool = processed_data[processed_data['primary_position'].isin(config['positions'])]
 
                 detected_archetype, dna_df = detect_player_archetype(target_player, archetypes)
@@ -505,7 +502,7 @@ with scouting_tab:
                     matches = find_matches(target_player, position_pool, archetype_config, search_mode_logic)
                     st.session_state.matches = matches
                 else:
-                    st.session_state.matches = pd.DataFrame() # Ensure matches is empty if no archetype
+                    st.session_state.matches = pd.DataFrame() 
             else:
                 st.session_state.analysis_run = True
                 st.session_state.target_player = None
@@ -542,6 +539,8 @@ with scouting_tab:
                     st.warning("Could not determine an archetype for this player, possibly due to missing data.")
             else:
                 st.info("Select a position and a target player in the sidebar to begin analysis.")
+    else:
+        st.error("Data could not be loaded. Please check your API credentials and network connection.")
             
 with comparison_tab:
     st.header("Multi-Player Direct Comparison")
@@ -595,3 +594,5 @@ with comparison_tab:
                     for radar_name, radar_config in radars_to_show.items():
                         fig = create_enhanced_radar_chart(player, None, radar_config)
                         st.pyplot(fig, use_container_width=True)
+    else:
+        st.error("Data could not be loaded. Please check your API credentials and network connection.")
