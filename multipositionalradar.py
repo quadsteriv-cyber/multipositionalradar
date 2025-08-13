@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 import warnings
 from sklearn.metrics.pairwise import cosine_similarity
+from datetime import date # <-- FIX: Added missing import
 
 warnings.filterwarnings('ignore')
 
