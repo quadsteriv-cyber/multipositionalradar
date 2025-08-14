@@ -886,24 +886,25 @@ def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
 
     return fig, metrics
 
-def render_plotly_with_legend_hover(fig, metrics, height=520):
+def render_plotly_with_legend_hover(fig, metrics, height=520, player_names=None):
     """
-    Compatible solution for polar charts:
-    - Hides text initially (percentiles invisible)
-    - Uses 'toggleothers' for legend click behavior
-    - Leaves opacity management to Plotly (click isolates player)
+    Adds a checkbox and selectbox to highlight a single player:
+    - If enabled, that player's percentiles appear, others fade
+    - Fully Streamlit-controlled (no JS)
     """
-    # Hide text initially
-    fig.update_traces(
-        textfont=dict(color="rgba(0,0,0,0)"),  # Transparent text
-        selector=dict(mode="lines+markers+text")
-    )
+    highlight = st.checkbox("Highlight a player on this radar", key=f"highlight_{uuid.uuid4().hex}")
+    selected_player = None
+    if highlight and player_names:
+        selected_player = st.selectbox("Select player", player_names, key=f"player_select_{uuid.uuid4().hex}")
 
-    # Enable isolate on legend click
-    fig.update_layout(
-        legend_itemclick="toggleothers",
-        legend_itemdoubleclick="toggle"
-    )
+    if selected_player:
+        for i, trace in enumerate(fig.data):
+            if trace.name == selected_player:
+                fig.data[i].opacity = 1.0
+                fig.data[i].textfont.color = "#ffffff"
+            else:
+                fig.data[i].opacity = 0.2
+                fig.data[i].textfont.color = "rgba(0,0,0,0)"
 
     st.plotly_chart(fig, use_container_width=True, height=height)
 
