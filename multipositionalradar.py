@@ -1073,7 +1073,6 @@ def get_season_start_year(season_str):
         return 0
 
 # --- REPLACE THIS ENTIRE BLOCK WITHIN YOUR SCRIPT ---
-
 with scouting_tab:
     if processed_data is not None:
         st.sidebar.header("🔍 Scouting Controls")
@@ -1098,7 +1097,7 @@ with scouting_tab:
         if st.sidebar.button("Analyze Player", type="primary", key="scout_analyze") and target_player is not None:
             st.session_state.analysis_run = True
             st.session_state.target_player = target_player
-            st.session_state.radar_players = []  # Clear radar on new analysis
+            st.session_state.radar_players = []
 
             config = POSITIONAL_CONFIGS[selected_pos]
             archetypes = config["archetypes"]
@@ -1125,8 +1124,6 @@ with scouting_tab:
                         seasons_to_include = available_seasons[:2]
                         search_pool = search_pool[search_pool['season_name'].isin(seasons_to_include)]
 
-                # --- CORRECTED INDENTATION FOR THIS BLOCK ---
-                # This block is now correctly aligned inside the 'else' statement
                 detected_archetype, dna_df = detect_player_archetype(target_player, archetypes)
                 st.session_state.detected_archetype = detected_archetype
                 st.session_state.dna_df = dna_df
@@ -1146,9 +1143,11 @@ with scouting_tab:
             
             st.rerun()
 
+        # --- DISPLAY LOGIC ---
         if st.session_state.analysis_run and 'target_player' in st.session_state and st.session_state.target_player is not None:
             tp = st.session_state.target_player
-            selected_pos = tp['position_group']
+            # Ensure selected_pos is correct for the analyzed player
+            selected_pos = tp['position_group'] if pd.notna(tp['position_group']) else selected_pos
 
             st.header(f"Analysis: {tp['player_name']} ({tp['primary_position']} | {tp['season_name']})")
 
@@ -1185,7 +1184,8 @@ with scouting_tab:
                                 st.rerun()
                 else:
                     st.warning("No matching players found with the current filters.")
-
+            
+            # This 'if' block handles displaying players added to the radar
             if st.session_state.radar_players:
                 st.subheader("Players on Radar")
                 num_players_on_radar = len(st.session_state.radar_players)
@@ -1201,6 +1201,7 @@ with scouting_tab:
                             st.session_state.radar_players.pop(i)
                             st.rerun()
 
+            # This block displays the radar charts themselves
             st.subheader("Player Radars")
             players_to_show = [st.session_state.target_player] + st.session_state.radar_players
 
@@ -1218,89 +1219,16 @@ with scouting_tab:
                         render_plotly_with_legend_hover(fig, metrics, height=520, player_names=player_names)
             else:
                  st.warning("Select a player and run analysis to see radar charts.")
+        
+        # This 'else' pairs with 'if st.session_state.analysis_run...'
         else:
             st.info("Select a position and target player from the sidebar, then click 'Analyze Player' to begin.")
+    
+    # This 'else' pairs with 'if processed_data is not None'
     else:
         st.error("Data could not be loaded. Please check your credentials in the script and your internet connection.")
-        if st.session_state.analysis_run and 'target_player' in st.session_state and st.session_state.target_player is not None:
-            tp = st.session_state.target_player
-            selected_pos = tp['position_group'] # Ensure selected_pos is correct for the analyzed player
-            
-            st.header(f"Analysis: {tp['player_name']} ({tp['primary_position']} | {tp['season_name']})")
-            
-            if st.session_state.detected_archetype:
-                st.subheader(f"Detected Archetype: {st.session_state.detected_archetype}")
-                col1, col2 = st.columns([1, 2])
-                with col1:
-                    st.dataframe(st.session_state.dna_df.reset_index(drop=True), hide_index=True)
-                with col2:
-                    st.write(f"**Description**: {POSITIONAL_CONFIGS[selected_pos]['archetypes'][st.session_state.detected_archetype]['description']}")
 
-                st.subheader(f"Top 10 Matches ({search_mode})")
-                if st.session_state.matches is not None and not st.session_state.matches.empty:
-                    display_cols = ['player_name', 'age', 'primary_position', 'team_name', 'league_name', 'season_name']
-                    score_col = 'upgrade_score' if search_mode_logic == 'upgrade' else 'similarity_score'
-                    display_cols.insert(1, score_col)
-                    
-                    matches_display = st.session_state.matches.head(10)[display_cols].copy()
-                    matches_display[score_col] = matches_display[score_col].round(1)
-                    st.dataframe(matches_display.rename(columns=lambda c: c.replace('_', ' ').title()), hide_index=True, use_container_width=True)
-                    
-                    # Add to radar buttons
-                    st.subheader("Add Players to Radar Comparison")
-                    for i, row in st.session_state.matches.head(10).iterrows():
-                        btn_key = f"add_{row['player_id']}_{row['season_id']}"
-                        age_str = str(int(row['age'])) if pd.notna(row['age']) else 'N/A'
-                        button_label = f"Add {row['player_name']} ({age_str}, {row['team_name']})"
-                        if st.button(button_label, key=btn_key):
-                            if not any(
-                                p['player_id'] == row['player_id'] and 
-                                p['season_id'] == row['season_id']
-                                for p in st.session_state.radar_players
-                            ):
-                                st.session_state.radar_players.append(row)
-                                st.rerun()
-                else:
-                    st.warning("No matching players found with the current filters.")
 
-            # Display radar players
-            if st.session_state.radar_players:
-                st.subheader("Players on Radar")
-                num_players_on_radar = len(st.session_state.radar_players)
-                radar_cols = st.columns(num_players_on_radar or 1)
-                for i in range(num_players_on_radar):
-                    with radar_cols[i]:
-                        player_data = st.session_state.radar_players[i]
-                        age_str = str(int(player_data['age'])) if pd.notna(player_data['age']) else 'N/A'
-                        st.markdown(f"**{player_data['player_name']}** ({age_str})")
-                        st.markdown(f"{player_data['primary_position']} | {player_data['team_name']}")
-                        st.markdown(f"`{player_data['league_name']} - {player_data['season_name']}`")
-                        if st.button("❌ Remove", key=f"remove_scout_{i}"):
-                            st.session_state.radar_players.pop(i)
-                            st.rerun()
-
-            # Display radar charts for selected players
-            st.subheader("Player Radars")
-            players_to_show = [st.session_state.target_player] + st.session_state.radar_players
-            
-            if selected_pos and selected_pos in POSITIONAL_CONFIGS:
-                radars_to_show = POSITIONAL_CONFIGS[selected_pos]['radars']
-                num_radars = len(radars_to_show)
-                cols = st.columns(3) 
-                radar_items = list(radars_to_show.items())
-
-                for i in range(num_radars):
-                    with cols[i % 3]:
-                        radar_key, radar_config = radar_items[i]
-                        player_names = [p['player_name'] for p in players_to_show]
-                        fig, metrics = create_plotly_radar(players_to_show, radar_config)
-                        render_plotly_with_legend_hover(fig, metrics, height=520, player_names=player_names)
-            else:
-                 st.warning("Select a player and run analysis to see radar charts.")
-        else:
-            st.info("Select a position and target player from the sidebar, then click 'Analyze Player' to begin.")
-    else:
-        st.error("Data could not be loaded. Please check your credentials in the script and your internet connection.")
 
 with comparison_tab:
     st.header("Multi-Player Direct Comparison")
