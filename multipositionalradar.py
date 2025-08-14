@@ -1108,21 +1108,6 @@ with scouting_tab:
                 st.session_state.matches = pd.DataFrame()
             else:
                 position_pool = processed_data[processed_data['position_group'] == target_pos_group]
-                search_pool = position_pool.copy()
-
-                available_seasons = sorted(
-                    search_pool['season_name'].unique(),
-                    key=get_season_start_year,
-                    reverse=True
-                )
-
-                if available_seasons:
-                    if search_scope == 'Last Season Only':
-                        last_season = available_seasons[0]
-                        search_pool = search_pool[search_pool['season_name'] == last_season]
-                    elif search_scope == 'Last 2 Seasons':
-                        seasons_to_include = available_seasons[:2]
-                        search_pool = search_pool[search_pool['season_name'].isin(seasons_to_include)]
 
                 detected_archetype, dna_df = detect_player_archetype(target_player, archetypes)
                 st.session_state.detected_archetype = detected_archetype
@@ -1130,14 +1115,44 @@ with scouting_tab:
 
                 if detected_archetype:
                     archetype_config = archetypes[detected_archetype]
-                    matches = find_matches(
-                        target_player,
-                        search_pool,
-                        archetype_config,
-                        search_mode_logic,
-                        min_minutes
+                    
+                    # --- NEW LOGIC TO FIND MATCHES PER SEASON ---
+                    all_matches_list = []
+                    limit_per_season = 10  # How many top players to take from each season
+
+                    available_seasons = sorted(
+                        position_pool['season_name'].unique(),
+                        key=get_season_start_year,
+                        reverse=True
                     )
-                    st.session_state.matches = matches
+                    
+                    seasons_to_search = available_seasons
+                    if search_scope == 'Last Season Only':
+                        seasons_to_search = available_seasons[:1]
+                    elif search_scope == 'Last 2 Seasons':
+                        seasons_to_search = available_seasons[:2]
+
+                    for season in seasons_to_search:
+                        season_pool = position_pool[position_pool['season_name'] == season]
+                        if not season_pool.empty:
+                            season_matches_df = find_matches(
+                                target_player,
+                                season_pool,
+                                archetype_config,
+                                search_mode_logic,
+                                min_minutes
+                            )
+                            # Append the top N from this specific season
+                            all_matches_list.append(season_matches_df.head(limit_per_season))
+                    
+                    if all_matches_list:
+                        # Combine the lists of top players from each season
+                        matches = pd.concat(all_matches_list)
+                        # Sort the combined list to get the final ranking
+                        score_col = 'similarity_score' if search_mode_logic == 'similar' else 'upgrade_score'
+                        st.session_state.matches = matches.sort_values(by=score_col, ascending=False)
+                    else:
+                        st.session_state.matches = pd.DataFrame()
                 else:
                     st.session_state.matches = pd.DataFrame()
             
@@ -1146,7 +1161,6 @@ with scouting_tab:
         # --- DISPLAY LOGIC ---
         if st.session_state.analysis_run and 'target_player' in st.session_state and st.session_state.target_player is not None:
             tp = st.session_state.target_player
-            # Ensure selected_pos is correct for the analyzed player
             selected_pos = tp['position_group'] if pd.notna(tp['position_group']) else selected_pos
 
             st.header(f"Analysis: {tp['player_name']} ({tp['primary_position']} | {tp['season_name']})")
@@ -1185,7 +1199,6 @@ with scouting_tab:
                 else:
                     st.warning("No matching players found with the current filters.")
             
-            # This 'if' block handles displaying players added to the radar
             if st.session_state.radar_players:
                 st.subheader("Players on Radar")
                 num_players_on_radar = len(st.session_state.radar_players)
@@ -1201,7 +1214,6 @@ with scouting_tab:
                             st.session_state.radar_players.pop(i)
                             st.rerun()
 
-            # This block displays the radar charts themselves
             st.subheader("Player Radars")
             players_to_show = [st.session_state.target_player] + st.session_state.radar_players
 
@@ -1220,160 +1232,9 @@ with scouting_tab:
             else:
                  st.warning("Select a player and run analysis to see radar charts.")
         
-        # This 'else' pairs with 'if st.session_state.analysis_run...'
         else:
             st.info("Select a position and target player from the sidebar, then click 'Analyze Player' to begin.")
     
-    # This 'else' pairs with 'if processed_data is not None'
-    else:
-        st.error("Data could not be loaded. Please check your credentials in the script and your internet connection.")
-
-
-
-with comparison_tab:
-    st.header("Multi-Player Direct Comparison")
-
-    if processed_data is not None:
-        def player_filter_ui_comp(data, key_prefix):
-            state = st.session_state.comp_selections
-            
-            leagues = sorted(data['league_name'].dropna().unique())
-            
-            league_idx = leagues.index(state['league']) if state['league'] in leagues else None
-            selected_league = st.selectbox("League", leagues, key=f"{key_prefix}_league", index=league_idx, placeholder="Choose a league")
-            
-            if selected_league and selected_league != state.get('league'):
-                state['league'] = selected_league
-                state['season'] = None
-                state['team'] = None
-                state['player'] = None
-                st.rerun()
-
-            if state.get('league'):
-                league_df = data[data['league_name'] == state['league']]
-                seasons = sorted(league_df['season_name'].unique(), reverse=True)
-                season_idx = seasons.index(state['season']) if state.get('season') in seasons else None
-                selected_season = st.selectbox("Season", seasons, key=f"{key_prefix}_season", index=season_idx, placeholder="Choose a season")
-
-                if selected_season and selected_season != state.get('season'):
-                    state['season'] = selected_season
-                    state['team'] = None
-                    state['player'] = None
-                    st.rerun()
-
-            if state.get('season'):
-                season_df = data[(data['league_name'] == state['league']) & (data['season_name'] == state['season'])]
-                teams = ["All Teams"] + sorted(season_df['team_name'].unique())
-                team_idx = teams.index(state['team']) if state.get('team') in teams else 0
-                selected_team = st.selectbox("Team", teams, key=f"{key_prefix}_team", index=team_idx)
-
-                if selected_team and selected_team != state.get('team'):
-                    state['team'] = selected_team
-                    state['player'] = None
-                    st.rerun()
-            
-            if state.get('team'):
-                if state['team'] != "All Teams":
-                    player_pool = data[
-                        (data['league_name'] == state['league']) & 
-                        (data['season_name'] == state['season']) & 
-                        (data['team_name'] == state['team'])
-                    ]
-                else:
-                    player_pool = data[
-                        (data['league_name'] == state['league']) & 
-                        (data['season_name'] == state['season'])
-                    ]
-                
-                if not player_pool.empty:
-                    player_pool_display = player_pool.copy()
-                    player_pool_display['age_str'] = player_pool_display['age'].apply(lambda x: str(int(x)) if pd.notna(x) else 'N/A')
-                    player_pool_display['display_name'] = (
-                        player_pool_display['player_name'] + 
-                        " (" + player_pool_display['age_str'] + 
-                        ", " + player_pool_display['primary_position'].fillna('N/A') + ")"
-                    )
-                    
-                    players = sorted(player_pool_display['display_name'].unique())
-                    player_idx = players.index(state['player']) if state.get('player') in players else None
-                    
-                    selected_display_name = st.selectbox("Player", players, key=f"{key_prefix}_player_detailed", index=player_idx, placeholder="Choose a player to add")
-                    
-                    if selected_display_name and selected_display_name != state.get('player'):
-                        state['player'] = selected_display_name
-                        st.rerun()
-
-                    if state.get('player'):
-                        player_instance_df = player_pool_display[player_pool_display['display_name'] == state['player']]
-                        if not player_instance_df.empty:
-                            return data.loc[player_instance_df.index[0]]
-            return None
-
-        with st.container(border=True):
-            st.subheader("Add a Player to Comparison")
-            player_instance = player_filter_ui_comp(processed_data, key_prefix="comp")
-
-            if st.button("Add Player to Comparison", type="primary"):
-                if player_instance is not None:
-                    player_id = f"{player_instance['player_id']}_{player_instance['season_id']}"
-                    if not any(f"{p['player_id']}_{p['season_id']}" == player_id for p in st.session_state.comparison_players):
-                        st.session_state.comparison_players.append(player_instance)
-                        st.rerun()
-                    else:
-                        st.warning("This player and season is already in the comparison.")
-                else:
-                    st.warning("Please select a valid player from all dropdowns.")
-
-        st.divider()
-
-        st.subheader("Current Comparison")
-        if not st.session_state.comparison_players:
-            st.info("Add one or more players using the selection box above to start a comparison.")
-        else:
-            num_comp_players = len(st.session_state.comparison_players)
-            player_cols = st.columns(num_comp_players or 1)
-            for i in range(num_comp_players):
-                with player_cols[i]:
-                    player_data = st.session_state.comparison_players[i]
-                    age_str = str(int(player_data['age'])) if pd.notna(player_data['age']) else 'N/A'
-                    st.markdown(f"**{player_data['player_name']}** ({age_str})")
-                    st.markdown(f"{player_data['primary_position']} | *{player_data['team_name']}*")
-                    st.markdown(f"`{player_data['league_name']} - {player_data['season_name']}`")
-                    if st.button("❌ Remove", key=f"remove_comp_{i}"):
-                        st.session_state.comparison_players.pop(i)
-                        st.rerun()
-
-        st.divider()
-        
-        if st.session_state.comparison_players:
-            st.subheader("Radar Chart Comparison")
-            
-            # Determine best position group to use for radars
-            pos_groups = [p['position_group'] for p in st.session_state.comparison_players if pd.notna(p['position_group'])]
-            if pos_groups:
-                # Use the most common position group among the selected players
-                default_pos = max(set(pos_groups), key=pos_groups.count)
-            else:
-                default_pos = "Striker" # Fallback
-            
-            radar_pos_options = list(POSITIONAL_CONFIGS.keys())
-            default_index = radar_pos_options.index(default_pos) if default_pos in radar_pos_options else 0
-            
-            selected_radar_pos = st.selectbox("Select Radar Set to Use for Comparison", radar_pos_options, index=default_index)
-            
-            if selected_radar_pos:
-                radars_to_show = POSITIONAL_CONFIGS[selected_radar_pos]['radars']
-                
-                num_radars = len(radars_to_show)
-                cols = st.columns(3) 
-                radar_items = list(radars_to_show.items())
-
-                for i in range(num_radars):
-                    with cols[i % 3]:
-                        radar_key, radar_config = radar_items[i]
-                        player_names_for_hover = [p['player_name'] for p in st.session_state.comparison_players]
-                        fig, metrics = create_plotly_radar(st.session_state.comparison_players, radar_config)
-                        render_plotly_with_legend_hover(fig, metrics, height=520, player_names=player_names_for_hover)
     else:
         st.error("Data could not be loaded. Please check your credentials in the script and your internet connection.")
 
