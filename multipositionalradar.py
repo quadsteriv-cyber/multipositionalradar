@@ -1061,23 +1061,32 @@ with scouting_tab:
         pos_options = list(POSITIONAL_CONFIGS.keys())
         selected_pos = st.sidebar.selectbox("1. Select Position", pos_options, key="scout_pos")
         filter_by_pos = st.sidebar.checkbox("Filter dropdowns by position group", value=True, key="pos_filter_toggle")
-        
+
         st.sidebar.subheader("Select Target Player")
         min_minutes = st.sidebar.slider("Minimum Minutes Played", 0, 3000, 600, 100)
         pos_filter_arg = selected_pos if filter_by_pos else None
         target_player = create_player_filter_ui(processed_data, key_prefix="scout", pos_filter=pos_filter_arg)
-        
+
+        # --- START OF MODIFIED SECTION ---
+
         search_mode = st.sidebar.radio("Search Mode", ('Find Similar Players', 'Find Potential Upgrades'), key='scout_mode')
         search_mode_logic = 'upgrade' if search_mode == 'Find Potential Upgrades' else 'similar'
+        
+        # New Search Scope Dropdown
+        search_scope = st.sidebar.selectbox(
+            "Search Scope",
+            ('Last Season Only', 'Last 2 Seasons', 'All Historical Data'),
+            key='scout_scope'
+        )
 
         if st.sidebar.button("Analyze Player", type="primary", key="scout_analyze") and target_player is not None:
             st.session_state.analysis_run = True
             st.session_state.target_player = target_player
             st.session_state.radar_players = [] # Clear radar on new analysis
-            
+
             config = POSITIONAL_CONFIGS[selected_pos]
             archetypes = config["archetypes"]
-            
+
             # Use position group for broader pool search
             target_pos_group = target_player['position_group']
             if pd.isna(target_pos_group):
@@ -1086,16 +1095,33 @@ with scouting_tab:
             else:
                 position_pool = processed_data[processed_data['position_group'] == target_pos_group]
 
+                # --- New Logic to Filter Search Pool by Season ---
+                search_pool = position_pool.copy() # Start with the full pool
+                available_seasons = sorted(search_pool['season_name'].unique(), reverse=True)
+
+                if available_seasons:
+                    if search_scope == 'Last Season Only':
+                        last_season = available_seasons[0]
+                        search_pool = search_pool[search_pool['season_name'] == last_season]
+                    elif search_scope == 'Last 2 Seasons':
+                        # This safely handles cases where only 1 season is available
+                        seasons_to_include = available_seasons[:2]
+                        search_pool = search_pool[search_pool['season_name'].isin(seasons_to_include)]
+                    # If 'All Historical Data', we don't filter, so no 'else' is needed.
+                
+                # --- End of New Logic ---
+
                 detected_archetype, dna_df = detect_player_archetype(target_player, archetypes)
                 st.session_state.detected_archetype = detected_archetype
                 st.session_state.dna_df = dna_df
-                
+
                 if detected_archetype:
                     archetype_config = archetypes[detected_archetype]
+                    # Use the newly filtered 'search_pool' DataFrame here
                     matches = find_matches(
-                        target_player, 
-                        position_pool, 
-                        archetype_config, 
+                        target_player,
+                        search_pool, # Use the filtered pool
+                        archetype_config,
                         search_mode_logic,
                         min_minutes
                     )
@@ -1103,6 +1129,8 @@ with scouting_tab:
                 else:
                     st.session_state.matches = pd.DataFrame()
             st.rerun()
+        
+        # --- END OF MODIFIED SECTION ---
 
         if st.session_state.analysis_run and 'target_player' in st.session_state and st.session_state.target_player is not None:
             tp = st.session_state.target_player
