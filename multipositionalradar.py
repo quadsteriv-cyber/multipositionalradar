@@ -1041,7 +1041,9 @@ with scouting_tab:
                     st.subheader("Add Players to Radar")
                     for i, row in st.session_state.matches.head(10).iterrows():
                         btn_key = f"add_{row['player_id']}_{row['season_id']}"
-                        if st.button(f"Add {row['player_name']} to Radar", key=btn_key):
+                        age_str = str(int(row['age'])) if pd.notna(row['age']) else 'N/A'
+                        button_label = f"Add {row['player_name']} ({age_str}, {row['primary_position']})"
+                        if st.button(button_label, key=btn_key):
                             # Check if already added
                             if not any(
                                 p['player_id'] == row['player_id'] and 
