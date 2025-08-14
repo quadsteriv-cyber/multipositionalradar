@@ -1083,8 +1083,9 @@ with scouting_tab:
                 for i in range(num_radars):
                     with cols[i % 3]:
                         radar_key, radar_config = radar_items[i]
+                        player_names = [p['player_name'] for p in players_to_show]
                         fig, metrics = create_plotly_radar(players_to_show, radar_config)
-                        render_plotly_with_legend_hover(fig, metrics, height=520)
+                        render_plotly_with_legend_hover(fig, metrics, height=520, player_names=player_names)
         else:
             st.info("Select a position and target player to begin analysis")
     else:
@@ -1094,12 +1095,6 @@ with comparison_tab:
     st.header("Multi-Player Direct Comparison")
 
     if processed_data is not None:
-        # Ensure state is initialized
-        if 'comp_selections' not in st.session_state:
-            st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
-        if 'comparison_players' not in st.session_state:
-            st.session_state.comparison_players = []
-            
         def player_filter_ui_comp(data, key_prefix):
             state = st.session_state.comp_selections
             
@@ -1108,96 +1103,47 @@ with comparison_tab:
             league_idx = leagues.index(state['league']) if state['league'] in leagues else None
             selected_league = st.selectbox("League", leagues, key=f"{key_prefix}_league", index=league_idx, placeholder="Choose a league")
             
-            if selected_league != state['league']:
-                st.session_state.comp_selections['league'] = selected_league
-                st.session_state.comp_selections['season'] = None
-                st.session_state.comp_selections['team'] = None
-                st.session_state.comp_selections['player'] = None
+            if selected_league and selected_league != state.get('league'):
+                state['league'] = selected_league
+                state['season'] = None
+                state['team'] = None
+                state['player'] = None
                 st.rerun()
 
-            if st.session_state.comp_selections['league']:
-                league_df = data[data['league_name'] == st.session_state.comp_selections['league']]
+            if state.get('league'):
+                league_df = data[data['league_name'] == state['league']]
                 seasons = sorted(league_df['season_name'].unique())
-                season_idx = seasons.index(state['season']) if state['season'] in seasons else None
+                season_idx = seasons.index(state['season']) if state.get('season') in seasons else None
                 selected_season = st.selectbox("Season", seasons, key=f"{key_prefix}_season", index=season_idx, placeholder="Choose a season")
-                
-                if selected_season != state['season']:
-                    st.session_state.comp_selections['season'] = selected_season
-                    st.session_state.comp_selections['team'] = None
-                    st.session_state.comp_selections['player'] = None
+
+                if selected_season and selected_season != state.get('season'):
+                    state['season'] = selected_season
+                    state['team'] = None
+                    state['player'] = None
                     st.rerun()
 
-            if st.session_state.comp_selections['team']:
-                if st.session_state.comp_selections['team'] != "All Teams":
-                    player_pool = data[
-                        (data['league_name'] == st.session_state.comp_selections['league']) & 
-                        (data['season_name'] == st.session_state.comp_selections['season']) & 
-                        (data['team_name'] == st.session_state.comp_selections['team'])
-                    ]
-                else:
-                    player_pool = data[
-                        (data['league_name'] == st.session_state.comp_selections['league']) & 
-                        (data['season_name'] == st.session_state.comp_selections['season'])
-                    ]
-                
-                if not player_pool.empty:
-                    player_pool_display = player_pool.copy()
-                    player_pool_display['age_str'] = player_pool_display['age'].apply(lambda x: str(int(x)) if pd.notna(x) else 'N/A')
-                    player_pool_display['display_name'] = (
-                        player_pool_display['player_name'] + 
-                        " (" + player_pool_display['age_str'] + 
-                        ", " + player_pool_display['primary_position'].fillna('N/A') + ")"
-                    )
-                    
-                    players = sorted(player_pool_display['display_name'].unique())
-                    player_idx = None
-                    if state['player']:
-                        # Find the display name that matches the selected player
-                        matching_displays = [p for p in players if p.startswith(f"{state['player']} (")]
-                        if matching_displays:
-                            player_idx = players.index(matching_displays[0])
-                    
-                    selected_display_name = st.selectbox("Player", players, key=f"{key_prefix}_player_detailed", index=player_idx, placeholder="Choose a player")
-                    
-                    if selected_display_name:
-                        # Extract the actual player name from the display name
-                        actual_player_name = selected_display_name.split(" (")[0]
-                        st.session_state.comp_selections['player'] = actual_player_name
-            if st.session_state.comp_selections['team']:
-                if st.session_state.comp_selections['team'] != "All Teams":
-                    player_pool = data[
-                        (data['league_name'] == st.session_state.comp_selections['league']) & 
-                        (data['season_name'] == st.session_state.comp_selections['season']) & 
-                        (data['team_name'] == st.session_state.comp_selections['team'])
-                    ]
-                else:
-                    player_pool = data[
-                        (data['league_name'] == st.session_state.comp_selections['league']) & 
-                        (data['season_name'] == st.session_state.comp_selections['season'])
-                    ]
-                
-                players = sorted(player_pool['player_name'].unique())
-                player_idx = players.index(state['player']) if state['player'] in players else None
-                selected_player_name = st.selectbox("Player", players, key=f"{key_prefix}_player", index=player_idx, placeholder="Choose a player")
-                st.session_state.comp_selections['player'] = selected_player_name
+            if state.get('season'):
+                season_df = data[(data['league_name'] == state['league']) & (data['season_name'] == state['season'])]
+                teams = ["All Teams"] + sorted(season_df['team_name'].unique())
+                team_idx = teams.index(state['team']) if state.get('team') in teams else None
+                selected_team = st.selectbox("Team", teams, key=f"{key_prefix}_team", index=team_idx)
+
+                if selected_team and selected_team != state.get('team'):
+                    state['team'] = selected_team
+                    state['player'] = None
+                    st.rerun()
             
-            if st.session_state.comp_selections['player']:
-                player_instance = processed_data[
-                    (processed_data['player_name'] == st.session_state.comp_selections['player']) & 
-                    (processed_data['season_name'] == st.session_state.comp_selections['season']) &
-                    (processed_data['league_name'] == st.session_state.comp_selections['league'])
-                ]
-             if st.session_state.comp_selections['team']:
-                if st.session_state.comp_selections['team'] != "All Teams":
+            if state.get('team'):
+                if state['team'] != "All Teams":
                     player_pool = data[
-                        (data['league_name'] == st.session_state.comp_selections['league']) & 
-                        (data['season_name'] == st.session_state.comp_selections['season']) & 
-                        (data['team_name'] == st.session_state.comp_selections['team'])
+                        (data['league_name'] == state['league']) & 
+                        (data['season_name'] == state['season']) & 
+                        (data['team_name'] == state['team'])
                     ]
                 else:
                     player_pool = data[
-                        (data['league_name'] == st.session_state.comp_selections['league']) & 
-                        (data['season_name'] == st.session_state.comp_selections['season'])
+                        (data['league_name'] == state['league']) & 
+                        (data['season_name'] == state['season'])
                     ]
                 
                 if not player_pool.empty:
@@ -1210,20 +1156,18 @@ with comparison_tab:
                     )
                     
                     players = sorted(player_pool_display['display_name'].unique())
-                    player_idx = None
-                    if state['player']:
-                        # Find the display name that matches the selected player
-                        matching_displays = [p for p in players if p.startswith(f"{state['player']} (")]
-                        if matching_displays:
-                            player_idx = players.index(matching_displays[0])
+                    player_idx = players.index(state['player']) if state.get('player') in players else None
                     
                     selected_display_name = st.selectbox("Player", players, key=f"{key_prefix}_player_detailed", index=player_idx, placeholder="Choose a player")
                     
-                    if selected_display_name:
-                        # Extract the actual player name from the display name
-                        actual_player_name = selected_display_name.split(" (")[0]
-                        st.session_state.comp_selections['player'] = actual_player_name
-                    return player_instance.iloc[0]
+                    if selected_display_name and selected_display_name != state.get('player'):
+                        state['player'] = selected_display_name
+                        st.rerun()
+
+                    if state.get('player'):
+                        player_instance_df = player_pool_display[player_pool_display['display_name'] == state['player']]
+                        if not player_instance_df.empty:
+                            return player_instance_df.iloc[0]
             return None
 
         with st.container(border=True):
@@ -1232,14 +1176,8 @@ with comparison_tab:
 
             if st.button("Add Player", type="primary"):
                 if player_instance is not None:
-                    # Create a unique identifier for the player+season
                     player_id = f"{player_instance['player_id']}_{player_instance['season_id']}"
-                    
-                    # Check if already added
-                    if not any(
-                        f"{p['player_id']}_{p['season_id']}" == player_id 
-                        for p in st.session_state.comparison_players
-                    ):
+                    if not any(f"{p['player_id']}_{p['season_id']}" == player_id for p in st.session_state.comparison_players):
                         st.session_state.comparison_players.append(player_instance)
                         st.rerun()
                     else:
@@ -1274,7 +1212,6 @@ with comparison_tab:
             
             radars_to_show = POSITIONAL_CONFIGS[selected_radar_pos]['radars']
             
-            # Layout: 3 columns per row
             num_radars = len(radars_to_show)
             cols = st.columns(3) 
             radar_items = list(radars_to_show.items())
@@ -1282,10 +1219,10 @@ with comparison_tab:
             for i in range(num_radars):
                 with cols[i % 3]:
                     radar_key, radar_config = radar_items[i]
+                    player_names_for_hover = [p['player_name'] for p in st.session_state.comparison_players]
                     fig, metrics = create_plotly_radar(st.session_state.comparison_players, radar_config)
-                    render_plotly_with_legend_hover(fig, metrics, height=520)
+                    render_plotly_with_legend_hover(fig, metrics, height=520, player_names=player_names_for_hover)
     else:
         st.error("Data could not be loaded. Please check your credentials.")
-
 
 
