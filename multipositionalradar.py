@@ -1145,7 +1145,7 @@ with scouting_tab:
                     st.session_state.matches = pd.DataFrame()
             st.rerun()
 
-                detected_archetype, dna_df = detect_player_archetype(target_player, archetypes)
+            detected_archetype, dna_df = detect_player_archetype(target_player, archetypes)
                 st.session_state.detected_archetype = detected_archetype
                 st.session_state.dna_df = dna_df
 
