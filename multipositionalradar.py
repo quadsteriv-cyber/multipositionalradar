@@ -1166,6 +1166,28 @@ with comparison_tab:
                     (processed_data['league_name'] == st.session_state.comp_selections['league'])
                 ]
                 if not player_instance.empty:
+                    player_pool_display = player_pool.copy()
+                    player_pool_display['age_str'] = player_pool_display['age'].apply(lambda x: str(int(x)) if pd.notna(x) else 'N/A')
+                    player_pool_display['display_name'] = (
+                        player_pool_display['player_name'] + 
+                        " (" + player_pool_display['age_str'] + 
+                        ", " + player_pool_display['primary_position'].fillna('N/A') + ")"
+                    )
+                    
+                    players = sorted(player_pool_display['display_name'].unique())
+                    player_idx = None
+                    if state['player']:
+                        # Find the display name that matches the selected player
+                        matching_displays = [p for p in players if p.startswith(f"{state['player']} (")]
+                        if matching_displays:
+                            player_idx = players.index(matching_displays[0])
+                    
+                    selected_display_name = st.selectbox("Player", players, key=f"{key_prefix}_player", index=player_idx, placeholder="Choose a player")
+                    
+                    if selected_display_name:
+                        # Extract the actual player name from the display name
+                        actual_player_name = selected_display_name.split(" (")[0]
+                        st.session_state.comp_selections['player'] = actual_player_name
                     return player_instance.iloc[0]
             return None
 
