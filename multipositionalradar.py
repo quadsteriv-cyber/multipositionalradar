@@ -838,7 +838,7 @@ def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
             line=dict(width=2, color=color),
             marker=dict(size=5, color=color),
             text=[f"{int(round(v))}" for v in percentile_values] + [f"{int(round(percentile_values[0]))}"],
-            textfont=dict(size=11, color="rgba(0,0,0,0)"),
+            textfont=dict(size=11, color="#ffffff" if len(players_data) == 1 else "rgba(0,0,0,0)"),
             textposition="top center",
             hovertemplate="%{theta}<br>%{r:.0f}th percentile<extra>" + label + "</extra>",
             fill="toself",
