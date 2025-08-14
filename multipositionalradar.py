@@ -1,11 +1,10 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v11.0 (GK Support & Fullscreen Radars) ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v12.0 (Canonical Seasons) ⚽
 #
 # Changes in this version:
-# - Added full Goalkeeper (GK) section with archetypes and radar metrics.
-# - Implemented a "View Fullscreen" button for all radar charts using st.dialog.
-# - Integrated all previous features like statistical soundness and interactive radars.
-# - Maintained all physical profile radars and hover interactions.
+# - Implemented canonical season logic to group seasons by their end year (e.g., 2024/25 + 2025).
+# - Added helper functions to support the new season logic.
+# - Maintained all previous features (GK section, Fullscreen Radars, etc.).
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -160,7 +159,6 @@ STRIKER_RADAR_METRICS = {
             'turnovers_90': 'Ball Security (Inv)', 'deep_progressions_90': 'Deep Progressions p90'
         }
     },
-    # PHYSICAL profile
     'aerial': {
         'name': 'Aerial Prowess', 'color': '#607D8B',
         'metrics': {
@@ -179,8 +177,6 @@ STRIKER_RADAR_METRICS = {
         }
     }
 }
-
-# --- REVISED WINGER_ARCHETYPES ---
 
 WINGER_ARCHETYPES = {
     "Goal-Scoring Winger": {
@@ -246,7 +242,6 @@ WINGER_RADAR_METRICS = {
             'dribbled_past_90': 'Times Dribbled Past p90', 'aggressive_actions_90': 'Aggressive Actions'
         }
     },
-    # PHYSICAL profile
     'duels': {
         'name': 'Duels & Security', 'color': '#607D8B',
         'metrics': {
@@ -303,7 +298,6 @@ CM_RADAR_METRICS = {
             'pressures_90': 'Pressures p90'
         }
     },
-    # PHYSICAL profile
     'duels': {
         'name': 'Duels & Physicality', 'color': '#AF1D1D',
         'metrics': {
@@ -347,7 +341,6 @@ CM_RADAR_METRICS = {
     }
 }
 
-# --- REVISED FULLBACK_ARCHETYPES ---
 FULLBACK_ARCHETYPES = {
     "Attacking Fullback": {
         "description": "An offensive-minded full-back with high attacking output, including crosses, key passes, and deep forward runs into the final third to create chances.",
@@ -382,7 +375,6 @@ FULLBACK_RADAR_METRICS = {
             'aggressive_actions_90': 'Aggressive Actions p90'
         }
     },
-    # PHYSICAL profile
     'duels': {
         'name': 'Duels', 'color': '#008294',
         'metrics': {
@@ -422,7 +414,6 @@ FULLBACK_RADAR_METRICS = {
     }
 }
 
-# --- REVISED CB_ARCHETYPES ---
 CB_ARCHETYPES = {
     "Ball-Playing Defender": {
         "description": "A defender comfortable in possession, who initiates attacks from the back with progressive passing, long balls, and carries into midfield. They are defined by their on-ball ability.",
@@ -454,7 +445,6 @@ CB_RADAR_METRICS = {
             'aggressive_actions_90': 'Aggressive Actions', 'pressures_90': 'Pressures p90'
         }
     },
-    # PHYSICAL profile
     'aerial_duels': {
         'name': 'Aerial Duels & Clearances', 'color': '#4CAF50',
         'metrics': {
@@ -493,8 +483,6 @@ CB_RADAR_METRICS = {
         }
     }
 }
-
-# --- ADDED GOALKEEPER SECTION ---
 
 GK_ARCHETYPES = {
     "Sweeper-Keeper": {
@@ -557,8 +545,6 @@ GK_RADAR_METRICS = {
     }
 }
 
-# --- UPDATED POSITIONAL_CONFIGS DICTIONARY ---
-
 POSITIONAL_CONFIGS = {
     "Goalkeeper": {"archetypes": GK_ARCHETYPES, "radars": GK_RADAR_METRICS, "positions": ['Goalkeeper']},
     "Fullback": {"archetypes": FULLBACK_ARCHETYPES, "radars": FULLBACK_RADAR_METRICS, "positions":
@@ -587,7 +573,7 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
     for radar in pos_config['radars'].values() for metric in radar['metrics'].keys()
 )))
 
-# --- 4. DATA HANDLING & ANALYSIS FUNCTIONS (UPDATED) ---
+# --- 4. DATA HANDLING & ANALYSIS FUNCTIONS ---
 
 @st.cache_resource(ttl=3600)
 def get_all_leagues_data(_auth_credentials):
@@ -597,7 +583,6 @@ def get_all_leagues_data(_auth_credentials):
     failed_loads = 0
     
     try:
-        # Test authentication first
         test_url = "https://data.statsbombservices.com/api/v4/competitions"
         test_response = requests.get(test_url, auth=_auth_credentials, timeout=30)
         test_response.raise_for_status()
@@ -605,7 +590,6 @@ def get_all_leagues_data(_auth_credentials):
         st.error(f"Authentication failed. Please check your username and password. Error: {e}")
         return None
     
-    # Progress tracking
     total_requests = sum(len(season_ids) for season_ids in COMPETITION_SEASONS.values())
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -646,7 +630,6 @@ def get_all_leagues_data(_auth_credentials):
                 failed_loads += 1
                 continue
     
-    # Clear progress indicators
     progress_bar.empty()
     status_text.empty()
     
@@ -663,6 +646,20 @@ def get_all_leagues_data(_auth_credentials):
         st.error(f"Error combining datasets: {e}")
         return None
 
+def get_canonical_season(season_str):
+    """
+    Intelligently extracts the canonical end year from a season string.
+    e.g., '2025' from '2024/2025' and '2025' from '2025'.
+    This allows grouping different season formats together.
+    """
+    try:
+        if isinstance(season_str, str) and '/' in season_str:
+            return int(season_str.split('/')[1])  # Take the END year
+        else:
+            return int(season_str)
+    except (ValueError, TypeError):
+        return 0
+
 @st.cache_data(ttl=3600)
 def process_data(_raw_data):
     """Processes raw data to calculate ages, position groups, and normalized metrics"""
@@ -672,12 +669,10 @@ def process_data(_raw_data):
     df_processed = _raw_data.copy()
     df_processed.columns = [c.replace('player_season_', '') for c in df_processed.columns]
     
-    # Clean string columns
     for col in ['player_name', 'team_name', 'league_name', 'season_name', 'primary_position']:
         if col in df_processed.columns and df_processed[col].dtype == 'object':
             df_processed[col] = df_processed[col].str.strip()
 
-    # --- Age Calculation ---
     def calculate_age(birth_date_str):
         if pd.isna(birth_date_str): return None
         try:
@@ -687,7 +682,6 @@ def process_data(_raw_data):
         except (ValueError, TypeError): return None
     df_processed['age'] = df_processed['birth_date'].apply(calculate_age)
     
-    # --- Position Group Mapping ---
     def get_position_group(primary_position):
         for group, config in POSITIONAL_CONFIGS.items():
             if primary_position in config['positions']:
@@ -695,54 +689,49 @@ def process_data(_raw_data):
         return None
     df_processed['position_group'] = df_processed['primary_position'].apply(get_position_group)
     
-    # --- Metric Calculation ---
     if 'padj_tackles_90' in df_processed.columns and 'padj_interceptions_90' in df_processed.columns:
         df_processed['padj_tackles_and_interceptions_90'] = (
             df_processed['padj_tackles_90'] + df_processed['padj_interceptions_90']
         )
     
-    # --- Position-Specific Percentiles & Z-Scores ---
     negative_stats = ['turnovers_90', 'dispossessions_90', 'dribbled_past_90', 'fouls_90']
     
     for metric in ALL_METRICS_TO_PERCENTILE:
         if metric not in df_processed.columns:
-            df_processed[metric] = 0 # Ensure metric exists to prevent errors
+            df_processed[metric] = 0
             continue
             
-        # Initialize columns
         df_processed[f'{metric}_pct'] = 0
         df_processed[f'{metric}_z'] = 0.0
         
-        # Process by position group
         for group, group_df in df_processed.groupby('position_group', dropna=False):
-            if group is None or len(group_df) < 5:  # Skip small groups
+            if group is None or len(group_df) < 5:
                 continue
                 
             metric_series = group_df[metric]
             
-            # Percentiles
             if metric in negative_stats:
-                # Invert percentiles for negative stats
                 ranks = metric_series.rank(pct=True, ascending=True)
                 df_processed.loc[group_df.index, f'{metric}_pct'] = (1 - ranks) * 100
             else:
                 df_processed.loc[group_df.index, f'{metric}_pct'] = metric_series.rank(pct=True) * 100
             
-            # Z-scores
             scaler = StandardScaler()
             z_scores = scaler.fit_transform(metric_series.values.reshape(-1, 1)).flatten()
             df_processed.loc[group_df.index, f'{metric}_z'] = z_scores
 
-    # Final cleaning
     metric_cols = [col for col in df_processed.columns if '_90' in col or '_ratio' in col or 'length' in col]
     pct_cols = [col for col in df_processed.columns if '_pct' in col]
     z_cols = [col for col in df_processed.columns if '_z' in col]
     cols_to_clean = list(set(metric_cols + pct_cols + z_cols))
     df_processed[cols_to_clean] = df_processed[cols_to_clean].fillna(0)
     
+    if 'season_name' in df_processed.columns:
+        df_processed['canonical_season'] = df_processed['season_name'].apply(get_canonical_season)
+
     return df_processed
 
-# --- 5. ANALYSIS & REPORTING FUNCTIONS (UPDATED) ---
+# --- 5. ANALYSIS & REPORTING FUNCTIONS ---
 
 def find_player_by_name(df, player_name):
     if not player_name: return None, None
@@ -771,11 +760,9 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
     key_identity_metrics = archetype_config['identity_metrics']
     key_weight = archetype_config['key_weight']
     
-    # Get z-score metrics
     z_metrics = [f'{m}_z' for m in key_identity_metrics]
     target_group = target_player['position_group']
     
-    # Filter pool
     pool_df = pool_df[
         (pool_df['minutes'] >= min_minutes) & 
         (pool_df['player_id'] != target_player['player_id']) & 
@@ -785,98 +772,41 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
     if pool_df.empty:
         return pd.DataFrame()
 
-    # Prepare vectors
     target_vector = target_player[z_metrics].fillna(0).values.reshape(1, -1)
     pool_matrix = pool_df[z_metrics].fillna(0).values
     
-    # Apply weights
     weights = np.full(len(z_metrics), key_weight)
     target_vector_w = target_vector * weights
     pool_matrix_w = pool_matrix * weights
     
-    # Calculate similarity
     similarities = cosine_similarity(target_vector_w, pool_matrix_w)
     pool_df['similarity_score'] = similarities[0] * 100
     
     if search_mode == 'upgrade':
-        # For upgrades, use average of percentiles
         pct_metrics = [f'{m}_pct' for m in key_identity_metrics]
         pool_df['upgrade_score'] = pool_df[pct_metrics].mean(axis=1)
         return pool_df.sort_values('upgrade_score', ascending=False)
     else:
         return pool_df.sort_values('similarity_score', ascending=False)
 
+# --- 6. RADAR CHART FUNCTIONS ---
 
-
-# --- 6. RADAR CHART FUNCTIONS (UPDATED) ---
-
-# This function remains the same as your original code, as it's not a part of the requested changes.
 def _radar_angles_labels(metrics_dict):
     labels = list(metrics_dict.values())
     metrics = list(metrics_dict.keys())
     return metrics, labels
 
-# This function remains the same as your original code, as it's not a part of the requested changes.
 def _player_percentiles_for_metrics(player_series, metrics):
     return [float(player_series.get(f"{m}_pct", 0.0)) for m in metrics]
 
-
-def _build_scatterpolar_trace(player_series, metrics, player_label, color, show_text=False):
-    """
-    Builds a single Scatterpolar trace for a player.
-    Adjusted for increased transparency and a more distinct hover effect.
-    """
-    values = _player_percentiles_for_metrics(player_series, metrics)
-    # Close the radar by repeating the first point
-    values += values[:1]
-    theta = metrics + [metrics[0]]
-
-    text_vals = [f"{int(round(v))}" for v in values]
-    text_vals[-1] = text_vals[0]
-
-    trace = go.Scatterpolar(
-        r=values,
-        theta=theta,
-        mode="lines+markers+text",
-        name=player_label,
-        line=dict(width=2, color=color),
-        marker=dict(size=5, color=color),
-        text=text_vals if show_text else text_vals,
-        textfont=dict(size=11, color="rgba(0,0,0,0)"),
-        textposition="top center",
-        hovertemplate="%{theta}<br>%{r:.0f}th percentile<extra>" + player_label + "</extra>",
-        fill="toself",
-        # Lower opacity for a more transparent look
-        fillcolor=f"rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.2)",
-        opacity=0.8,
-        legendgroup=player_label,
-        hoveron="points+fills",
-    )
-    return trace
-
 def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
-    """
-    Generates a Plotly Figure for a radar chart with multiple players.
-    Uses the specified color palette for improved readability.
-    """
+    """Generates a Plotly Figure for a radar chart with multiple players."""
     metrics_dict = radar_config['metrics']
     group_name = radar_config['name']
-
-    # This function is correct and returns a list of metrics and labels
     metrics, labels = _radar_angles_labels(metrics_dict)
 
-    # Updated color palette as requested
-    palette = [
-        '#FF0000',  # Red
-        '#0000FF',  # Blue
-        '#00FF00',  # Green
-        '#FFA500',  # Orange
-        '#FFC0CB',  # Pink
-    ]
-    # Fallback colors if more than 5 players are compared
-    fallback_palette = [
-        "#FFFF00", "#00FFFF", "#800080", "#FFD700"
-    ]
+    palette = ['#FF0000', '#0000FF', '#00FF00', '#FFA500', '#FFC0CB']
+    fallback_palette = ["#FFFF00", "#00FFFF", "#800080", "#FFD700"]
     full_palette = palette + fallback_palette
 
     fig = go.Figure()
@@ -887,17 +817,14 @@ def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
         label = f"{player_name} ({season_name})"
         color = full_palette[i % len(full_palette)]
 
-        # Convert hex to RGB for a slight transparency
         rgb_color = tuple(int(color[j:j+2], 16) for j in (1, 3, 5))
         rgba_fillcolor = f'rgba({rgb_color[0]}, {rgb_color[1]}, {rgb_color[2]}, 0.2)'
         
-        # Get the percentile values for the player's metrics
         percentile_values = _player_percentiles_for_metrics(player_series, metrics)
         
-        # Build the trace with the specified color
         trace = go.Scatterpolar(
             r=percentile_values + [percentile_values[0]],
-            theta=labels + [labels[0]], # Use labels for hover text
+            theta=labels + [labels[0]],
             mode="lines+markers+text",
             name=label,
             line=dict(width=2, color=color),
@@ -916,18 +843,14 @@ def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
 
     fig.update_layout(
         title=dict(
-            text=group_name,
-            x=0.5, xanchor='center',
-            y=0.95, yanchor='top',
-            font=dict(size=18, color="white"),
+            text=group_name, x=0.5, xanchor='center',
+            y=0.95, yanchor='top', font=dict(size=18, color="white"),
             pad=dict(t=24, b=4, l=4, r=4)
         ),
         showlegend=True,
         legend=dict(
-            orientation="h",
-            x=0.5, xanchor="center",
-            y=-0.15, yanchor="top",
-            font=dict(size=11, color="white"),
+            orientation="h", x=0.5, xanchor="center",
+            y=-0.15, yanchor="top", font=dict(size=11, color="white"),
             itemsizing="trace"
         ),
         polar=dict(
@@ -935,8 +858,7 @@ def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
             radialaxis=dict(range=[0, 100], showline=False, showticklabels=True, tickfont=dict(color="white", size=10),
                              gridcolor="rgba(255,255,255,0.15)", tickangle=0),
             angularaxis=dict(
-                tickvals=list(range(len(labels))),
-                ticktext=labels,
+                tickvals=list(range(len(labels))), ticktext=labels,
                 tickfont=dict(size=11, color="white"),
                 gridcolor="rgba(255,255,255,0.1)"
             )
@@ -946,40 +868,28 @@ def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
         margin=dict(t=80, b=90, l=40, r=40),
         hovermode="closest"
     )
-
     fig.update_layout(height=520)
-
     return fig, metrics
 
 def render_plotly_with_legend_hover(fig, metrics, height=520, player_names=None):
-    """
-    Adds a checkbox to highlight a player and a button to view the radar in a fullscreen dialog.
-    """
-    # Create a unique key for the widgets within this function call
+    """Adds a checkbox to highlight a player and a button to view the radar in a fullscreen dialog."""
     unique_key = uuid.uuid4().hex
     
-    # --- Fullscreen Button ---
     if st.button("👁️ View Fullscreen", key=f"fullscreen_{unique_key}"):
         with st.dialog(f"Fullscreen Radar: {fig.layout.title.text}", animated=True):
-            # We create a new figure for the dialog to avoid state issues
             dialog_fig = go.Figure(fig)
             dialog_fig.update_layout(height=700, title_font_size=24, legend_font_size=14)
             st.plotly_chart(dialog_fig, use_container_width=True)
 
-    # --- Player Highlighting Logic ---
     highlight = st.checkbox("Highlight a player on this radar", key=f"highlight_{unique_key}")
     selected_player = None
     if highlight and player_names:
         selected_player = st.selectbox("Select player", player_names, key=f"player_select_{unique_key}", index=None, placeholder="Select a player to highlight")
 
-    # Clone the figure to modify it without affecting the original
     display_fig = go.Figure(fig)
-
     if selected_player:
         for i, trace in enumerate(display_fig.data):
-            # Full name with season, as in the legend
             player_legend_name = trace.name
-            # Check if the selected player name is part of the legend entry
             if selected_player in player_legend_name:
                 display_fig.data[i].opacity = 1.0
                 display_fig.data[i].textfont.color = "#ffffff"
@@ -989,10 +899,22 @@ def render_plotly_with_legend_hover(fig, metrics, height=520, player_names=None)
 
     st.plotly_chart(display_fig, use_container_width=True, height=height)
 
-# --- 7. STREAMLIT APP LAYOUT (UPDATED) ---
-st.title("⚽ Advanced Multi-Position Player Analysis v11.0")
+def get_season_start_year(season_str):
+    """
+    Intelligently extracts the starting year from a season string (e.g., '2024' from '2024/2025' or '2025' from '2025').
+    This ensures correct chronological sorting.
+    """
+    try:
+        if isinstance(season_str, str) and '/' in season_str:
+            return int(season_str.split('/')[0])
+        else:
+            return int(season_str)
+    except (ValueError, TypeError):
+        return 0
 
-# Main data loading
+# --- 7. STREAMLIT APP LAYOUT ---
+st.title("⚽ Advanced Multi-Position Player Analysis v12.0")
+
 processed_data = None
 with st.spinner("Loading and processing data for all leagues... This may take a minute."):
     raw_data = get_all_leagues_data((USERNAME, PASSWORD))
@@ -1003,7 +925,6 @@ with st.spinner("Loading and processing data for all leagues... This may take a 
 
 scouting_tab, comparison_tab = st.tabs(["Scouting Analysis", "Direct Comparison"])
 
-# Player filter UI component
 def create_player_filter_ui(data, key_prefix, pos_filter=None):
     leagues = sorted(data['league_name'].dropna().unique())
     
@@ -1011,7 +932,7 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
     
     if selected_league:
         league_df = data[data['league_name'] == selected_league]
-        seasons = sorted(league_df['season_name'].unique(), reverse=True)
+        seasons = sorted(league_df['season_name'].unique(), key=get_season_start_year, reverse=True)
         selected_season = st.selectbox("Season", seasons, key=f"{key_prefix}_season", index=None, placeholder="Choose a season")
         
         if selected_season:
@@ -1055,24 +976,6 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
                         return data.loc[original_index]
     return None
 
-# --- ADD THIS NEW HELPER FUNCTION BEFORE THE SCOUTING TAB SECTION ---
-def get_season_start_year(season_str):
-    """
-    Intelligently extracts the starting year from a season string (e.g., '2024' from '2024/2025' or '2025' from '2025').
-    This ensures correct chronological sorting.
-    """
-    try:
-        # If it's a split season like '2024/2025', take the first part
-        if isinstance(season_str, str) and '/' in season_str:
-            return int(season_str.split('/')[0])
-        # Otherwise, it's a calendar year like '2025'
-        else:
-            return int(season_str)
-    except (ValueError, TypeError):
-        # Handle cases where the season string is not a valid year
-        return 0
-
-# --- REPLACE THIS ENTIRE BLOCK WITHIN YOUR SCRIPT ---
 with scouting_tab:
     if processed_data is not None:
         st.sidebar.header("🔍 Scouting Controls")
@@ -1116,49 +1019,29 @@ with scouting_tab:
                 if detected_archetype:
                     archetype_config = archetypes[detected_archetype]
                     
-                    # --- NEW LOGIC TO FIND MATCHES PER SEASON ---
-                    all_matches_list = []
-                    limit_per_season = 10  # How many top players to take from each season
-
-                    available_seasons = sorted(
-                        position_pool['season_name'].unique(),
-                        key=get_season_start_year,
-                        reverse=True
-                    )
+                    canonical_seasons = sorted(position_pool['canonical_season'].unique(), reverse=True)
                     
-                    seasons_to_search = available_seasons
+                    seasons_to_search = canonical_seasons
                     if search_scope == 'Last Season Only':
-                        seasons_to_search = available_seasons[:1]
+                        seasons_to_search = canonical_seasons[:1]
                     elif search_scope == 'Last 2 Seasons':
-                        seasons_to_search = available_seasons[:2]
+                        seasons_to_search = canonical_seasons[:2]
 
-                    for season in seasons_to_search:
-                        season_pool = position_pool[position_pool['season_name'] == season]
-                        if not season_pool.empty:
-                            season_matches_df = find_matches(
-                                target_player,
-                                season_pool,
-                                archetype_config,
-                                search_mode_logic,
-                                min_minutes
-                            )
-                            # Append the top N from this specific season
-                            all_matches_list.append(season_matches_df.head(limit_per_season))
+                    search_pool = position_pool[position_pool['canonical_season'].isin(seasons_to_search)]
                     
-                    if all_matches_list:
-                        # Combine the lists of top players from each season
-                        matches = pd.concat(all_matches_list)
-                        # Sort the combined list to get the final ranking
-                        score_col = 'similarity_score' if search_mode_logic == 'similar' else 'upgrade_score'
-                        st.session_state.matches = matches.sort_values(by=score_col, ascending=False)
-                    else:
-                        st.session_state.matches = pd.DataFrame()
+                    matches = find_matches(
+                        target_player,
+                        search_pool,
+                        archetype_config,
+                        search_mode_logic,
+                        min_minutes
+                    )
+                    st.session_state.matches = matches
                 else:
                     st.session_state.matches = pd.DataFrame()
             
             st.rerun()
 
-        # --- DISPLAY LOGIC ---
         if st.session_state.analysis_run and 'target_player' in st.session_state and st.session_state.target_player is not None:
             tp = st.session_state.target_player
             selected_pos = tp['position_group'] if pd.notna(tp['position_group']) else selected_pos
@@ -1237,5 +1120,150 @@ with scouting_tab:
     
     else:
         st.error("Data could not be loaded. Please check your credentials in the script and your internet connection.")
+
+with comparison_tab:
+    st.header("Multi-Player Direct Comparison")
+
+    if processed_data is not None:
+        def player_filter_ui_comp(data, key_prefix):
+            state = st.session_state.comp_selections
+            
+            leagues = sorted(data['league_name'].dropna().unique())
+            
+            league_idx = leagues.index(state['league']) if state['league'] in leagues else None
+            selected_league = st.selectbox("League", leagues, key=f"{key_prefix}_league", index=league_idx, placeholder="Choose a league")
+            
+            if selected_league and selected_league != state.get('league'):
+                state['league'] = selected_league
+                state['season'] = None
+                state['team'] = None
+                state['player'] = None
+                st.rerun()
+
+            if state.get('league'):
+                league_df = data[data['league_name'] == state['league']]
+                seasons = sorted(league_df['season_name'].unique(), key=get_season_start_year, reverse=True)
+                season_idx = seasons.index(state['season']) if state.get('season') in seasons else None
+                selected_season = st.selectbox("Season", seasons, key=f"{key_prefix}_season", index=season_idx, placeholder="Choose a season")
+
+                if selected_season and selected_season != state.get('season'):
+                    state['season'] = selected_season
+                    state['team'] = None
+                    state['player'] = None
+                    st.rerun()
+
+            if state.get('season'):
+                season_df = data[(data['league_name'] == state['league']) & (data['season_name'] == state['season'])]
+                teams = ["All Teams"] + sorted(season_df['team_name'].unique())
+                team_idx = teams.index(state['team']) if state.get('team') in teams else 0
+                selected_team = st.selectbox("Team", teams, key=f"{key_prefix}_team", index=team_idx)
+
+                if selected_team and selected_team != state.get('team'):
+                    state['team'] = selected_team
+                    state['player'] = None
+                    st.rerun()
+            
+            if state.get('team'):
+                if state['team'] != "All Teams":
+                    player_pool = data[
+                        (data['league_name'] == state['league']) & 
+                        (data['season_name'] == state['season']) & 
+                        (data['team_name'] == state['team'])
+                    ]
+                else:
+                    player_pool = data[
+                        (data['league_name'] == state['league']) & 
+                        (data['season_name'] == state['season'])
+                    ]
+                
+                if not player_pool.empty:
+                    player_pool_display = player_pool.copy()
+                    player_pool_display['age_str'] = player_pool_display['age'].apply(lambda x: str(int(x)) if pd.notna(x) else 'N/A')
+                    player_pool_display['display_name'] = (
+                        player_pool_display['player_name'] + 
+                        " (" + player_pool_display['age_str'] + 
+                        ", " + player_pool_display['primary_position'].fillna('N/A') + ")"
+                    )
+                    
+                    players = sorted(player_pool_display['display_name'].unique())
+                    player_idx = players.index(state['player']) if state.get('player') in players else None
+                    
+                    selected_display_name = st.selectbox("Player", players, key=f"{key_prefix}_player_detailed", index=player_idx, placeholder="Choose a player to add")
+                    
+                    if selected_display_name and selected_display_name != state.get('player'):
+                        state['player'] = selected_display_name
+                        st.rerun()
+
+                    if state.get('player'):
+                        player_instance_df = player_pool_display[player_pool_display['display_name'] == state['player']]
+                        if not player_instance_df.empty:
+                            return data.loc[player_instance_df.index[0]]
+            return None
+
+        with st.container(border=True):
+            st.subheader("Add a Player to Comparison")
+            player_instance = player_filter_ui_comp(processed_data, key_prefix="comp")
+
+            if st.button("Add Player to Comparison", type="primary"):
+                if player_instance is not None:
+                    player_id = f"{player_instance['player_id']}_{player_instance['season_id']}"
+                    if not any(f"{p['player_id']}_{p['season_id']}" == player_id for p in st.session_state.comparison_players):
+                        st.session_state.comparison_players.append(player_instance)
+                        st.rerun()
+                    else:
+                        st.warning("This player and season is already in the comparison.")
+                else:
+                    st.warning("Please select a valid player from all dropdowns.")
+
+        st.divider()
+
+        st.subheader("Current Comparison")
+        if not st.session_state.comparison_players:
+            st.info("Add one or more players using the selection box above to start a comparison.")
+        else:
+            num_comp_players = len(st.session_state.comparison_players)
+            player_cols = st.columns(num_comp_players or 1)
+            for i in range(num_comp_players):
+                with player_cols[i]:
+                    player_data = st.session_state.comparison_players[i]
+                    age_str = str(int(player_data['age'])) if pd.notna(player_data['age']) else 'N/A'
+                    st.markdown(f"**{player_data['player_name']}** ({age_str})")
+                    st.markdown(f"{player_data['primary_position']} | *{player_data['team_name']}*")
+                    st.markdown(f"`{player_data['league_name']} - {player_data['season_name']}`")
+                    if st.button("❌ Remove", key=f"remove_comp_{i}"):
+                        st.session_state.comparison_players.pop(i)
+                        st.rerun()
+
+        st.divider()
+        
+        if st.session_state.comparison_players:
+            st.subheader("Radar Chart Comparison")
+            
+            pos_groups = [p['position_group'] for p in st.session_state.comparison_players if pd.notna(p['position_group'])]
+            if pos_groups:
+                default_pos = max(set(pos_groups), key=pos_groups.count)
+            else:
+                default_pos = "Striker"
+            
+            radar_pos_options = list(POSITIONAL_CONFIGS.keys())
+            default_index = radar_pos_options.index(default_pos) if default_pos in radar_pos_options else 0
+            
+            selected_radar_pos = st.selectbox("Select Radar Set to Use for Comparison", radar_pos_options, index=default_index)
+            
+            if selected_radar_pos:
+                radars_to_show = POSITIONAL_CONFIGS[selected_radar_pos]['radars']
+                
+                num_radars = len(radars_to_show)
+                cols = st.columns(3) 
+                radar_items = list(radars_to_show.items())
+
+                for i in range(num_radars):
+                    with cols[i % 3]:
+                        radar_key, radar_config = radar_items[i]
+                        player_names_for_hover = [p['player_name'] for p in st.session_state.comparison_players]
+                        fig, metrics = create_plotly_radar(st.session_state.comparison_players, radar_config)
+                        render_plotly_with_legend_hover(fig, metrics, height=520, player_names=player_names_for_hover)
+    else:
+        st.error("Data could not be loaded. Please check your credentials in the script.")
 
 
