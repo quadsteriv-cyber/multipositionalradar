@@ -1061,9 +1061,10 @@ with scouting_tab:
                 radar_cols = st.columns(len(st.session_state.radar_players) or 1)
                 for i, player_data in enumerate(st.session_state.radar_players):
                     with radar_cols[i]:
-                        st.markdown(f"**{player_data['player_name']}**")
-                        st.markdown(f"{player_data['team_name']} | {player_data['league_name']}")
-                        st.markdown(f"`{player_data['season_name']}`")
+                        age_str = str(int(player_data['age'])) if pd.notna(player_data['age']) else 'N/A'
+                        st.markdown(f"**{player_data['player_name']}** ({age_str})")
+                        st.markdown(f"{player_data['primary_position']} | {player_data['team_name']}")
+                        st.markdown(f"`{player_data['league_name']} - {player_data['season_name']}`")
                         if st.button("❌ Remove", key=f"remove_{i}"):
                             st.session_state.radar_players.pop(i)
                             st.rerun()
