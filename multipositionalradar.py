@@ -1,16 +1,12 @@
 # ----------------------------------------------------------------------
-# ⚽ Advanced Multi-Position Player Analysis App v10.0 (Interactive Radars & Physical Profile) ⚽
+# ⚽ Advanced Multi-Position Player Analysis App v10.1 (Enhanced Stats & Interactive Radars) ⚽
 #
-# Changes in this version (per user request):
-# - Keep ALL data logic, archetypes, positions, and names intact.
-# - ONLY change metrics displayed on the radar charts: now exactly 6 radars per position,
-#   with one radar in each position focusing on PHYSICAL metrics (aerials/carries/duels),
-#   using only metrics already present in this document.
-# - Switch radar charts to Plotly-based interactive radars.
-#   * Hover over LEGEND name → highlight that player's radar, dim others.
-#   * Show percentile labels ON CHART only for the hovered player (not always-on).
-#   * Clear margins/spacing so text doesn’t overlap titles.
-# - No changes to statistical analysis or debugging logic.
+# Changes in this version:
+# - Added statistical soundness: z-score normalization, position-specific comparisons
+# - Integrated radar chart display for similar players via "Add to Radar"
+# - Maintained all physical profile radars and hover interactions
+# - Added minimum minutes filter (600 minutes)
+# - Fixed session state initialization issues
 # ----------------------------------------------------------------------
 
 # --- 1. IMPORTS ---
@@ -20,9 +16,10 @@ import pandas as pd
 import numpy as np
 import warnings
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.preprocessing import StandardScaler
 from datetime import date
 
-# New: Plotly + HTML component for legend-hover interactivity
+# Plotly + HTML component for legend-hover interactivity
 import plotly.graph_objects as go
 import plotly.io as pio
 import uuid
@@ -36,6 +33,24 @@ st.set_page_config(
     page_icon="⚽",
     layout="wide"
 )
+
+# Initialize session state variables
+if 'comp_selections' not in st.session_state:
+    st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
+if 'comparison_players' not in st.session_state:
+    st.session_state.comparison_players = []
+if 'radar_players' not in st.session_state:
+    st.session_state.radar_players = []
+if 'analysis_run' not in st.session_state:
+    st.session_state.analysis_run = False
+if 'target_player' not in st.session_state:
+    st.session_state.target_player = None
+if 'detected_archetype' not in st.session_state:
+    st.session_state.detected_archetype = None
+if 'dna_df' not in st.session_state:
+    st.session_state.dna_df = None
+if 'matches' not in st.session_state:
+    st.session_state.matches = None
 
 # --- 3. CORE & POSITIONAL CONFIGURATIONS ---
 
@@ -75,59 +90,42 @@ COMPETITION_SEASONS = {
     1865: [318]
 }
 
-# Archetype definitions (unchanged)
+# Archetype definitions
+# Archetype definitions
 STRIKER_ARCHETYPES = {
     "Poacher (Fox in the Box)": {
-        "description": "Clinical finisher, thrives in the penalty area, instinctive movement, minimal involvement in build-up.",
-        "identity_metrics": ['npg_90', 'np_xg_90', 'conversion_ratio', 'touches_inside_box_90', 'shot_touch_ratio', 'np_xg_per_shot'],
+        "description": "A clinical finisher who thrives in the penalty area with instinctive movement and a high shot volume. Minimal involvement in build-up play outside the final third. They prioritize shooting over passing.",
+        "identity_metrics": ['npg_90', 'np_xg_90', 'np_shots_90', 'touches_inside_box_90', 'conversion_ratio', 'np_xg_per_shot', 'shot_touch_ratio', 'op_xgchain_90'],
         "key_weight": 1.7
     },
     "Target Man": {
-        "description": "Strong aerial presence, holds up the ball, physical dominance.",
-        "identity_metrics": ['aerial_wins_90', 'aerial_ratio', 'fouls_won_90', 'op_xgbuildup_90', 'touches_inside_box_90', 'passes_into_box_90'],
+        "description": "A physically dominant forward with a strong aerial presence, excels at holding up the ball and bringing teammates into play. They are a focal point for long balls and physical duels.",
+        "identity_metrics": ['aerial_wins_90', 'aerial_ratio', 'fouls_won_90', 'op_xgbuildup_90', 'carries_90', 'touches_inside_box_90', 'long_balls_90', 'passing_ratio'],
         "key_weight": 1.6
     },
     "Complete Forward": {
-        "description": "Well-rounded—good finishing, dribbling, link-up, and movement.",
-        "identity_metrics": ['npg_90', 'key_passes_90', 'dribbles_90', 'deep_progressions_90', 'op_xgbuildup_90', 'aerial_wins_90'],
+        "description": "A well-rounded striker capable of doing everything: finishing, dribbling, linking up play, and making intelligent runs. A central figure in both goal-scoring and chance creation.",
+        "identity_metrics": ['npg_90', 'key_passes_90', 'dribbles_90', 'deep_progressions_90', 'op_xgbuildup_90', 'aerial_wins_90', 'op_xgchain_90', 'npxgxa_90'],
         "key_weight": 1.6
     },
     "False 9": {
-        "description": "Drops deep into midfield, playmaker-like vision, technical excellence.",
-        "identity_metrics": ['op_xgbuildup_90', 'key_passes_90', 'through_balls_90', 'dribbles_90', 'carries_90', 'xa_90'],
+        "description": "A forward who drops deep into midfield to link play, acting more like a playmaker than a traditional striker. They possess excellent technical skills, vision, and a high xG buildup contribution.",
+        "identity_metrics": ['op_xgbuildup_90', 'key_passes_90', 'through_balls_90', 'dribbles_90', 'carries_90', 'xa_90', 'forward_pass_proportion', 'passing_ratio'],
         "key_weight": 1.5
     },
     "Advanced Forward": {
-        "description": "Prioritizes runs in behind, thrives on through balls, pace-driven.",
-        "identity_metrics": ['deep_progressions_90', 'through_balls_90', 'np_shots_90', 'touches_inside_box_90', 'npg_90', 'np_xg_90'],
+        "description": "A pacey forward who primarily makes runs in behind the defensive line. They thrive on through balls and quick transitions, focusing on getting into dangerous areas to shoot.",
+        "identity_metrics": ['deep_progressions_90', 'through_balls_90', 'np_shots_90', 'touches_inside_box_90', 'npg_90', 'np_xg_90', 'dribbles_90', 'npxgxa_90'],
         "key_weight": 1.6
     },
     "Pressing Forward": {
-        "description": "Defensive work rate, triggers press, harasses defenders.",
-        "identity_metrics": ['pressures_90', 'pressure_regains_90', 'counterpressures_90', 'aggressive_actions_90', 'padj_tackles_90', 'fouls_90'],
+        "description": "A high-energy striker whose main defensive contribution is to harass and pressure opposition defenders. They have a high work rate and actively participate in winning the ball back.",
+        "identity_metrics": ['pressures_90', 'pressure_regains_90', 'counterpressures_90', 'aggressive_actions_90', 'padj_tackles_90', 'fouls_90', 'fhalf_pressures_90', 'fhalf_counterpressures_90'],
         "key_weight": 1.5
     },
-    "Second Striker (Support Striker)": {
-        "description": "Operates just behind main striker, creative link, dribbler.",
-        "identity_metrics": ['dribbles_90', 'key_passes_90', 'xa_90', 'touches_inside_box_90', 'npg_90', 'carries_90'],
-        "key_weight": 1.5
-    },
-    "Deep-Lying Forward": {
-        "description": "Drops into midfield to orchestrate play, but still a striker.",
-        "identity_metrics": ['op_xgbuildup_90', 'key_passes_90', 'long_balls_90', 'through_balls_90', 'carries_90', 'passing_ratio'],
-        "key_weight": 1.5
-    },
-    "Wide Forward": {
-        "description": "Starts wide but cuts inside; often part of a front two or fluid front three.",
-        "identity_metrics": ['dribbles_90', 'crosses_90', 'deep_progressions_90', 'touches_inside_box_90', 'npg_90', 'np_shots_90'],
-        "key_weight": 1.6
-    }
 }
 
-# --- RADAR METRICS (UPDATED ONLY FOR METRICS INSIDE CHARTS) ---
-# IMPORTANT: Names/titles remain EXACTLY the same to preserve continuity.
-# Each position has 6 radars; one of those 6 is now a "physical" profile by its METRICS (name unchanged).
-
+# Radar metrics
 STRIKER_RADAR_METRICS = {
     'finishing': {
         'name': 'Finishing', 'color': '#D32F2F',
@@ -164,7 +162,7 @@ STRIKER_RADAR_METRICS = {
             'turnovers_90': 'Ball Security (Inv)', 'deep_progressions_90': 'Deep Progressions p90'
         }
     },
-    # PHYSICAL profile (keep name 'aerial' unchanged; metrics emphasize physicality)
+    # PHYSICAL profile
     'aerial': {
         'name': 'Aerial Prowess', 'color': '#607D8B',
         'metrics': {
@@ -184,21 +182,28 @@ STRIKER_RADAR_METRICS = {
     }
 }
 
+# --- REVISED WINGER_ARCHETYPES ---
+
 WINGER_ARCHETYPES = {
     "Goal-Scoring Winger": {
-        "description": "A winger focused on cutting inside to shoot and score goals.",
-        "identity_metrics": ['npg_90', 'np_xg_90', 'np_shots_90', 'touches_inside_box_90', 'np_xg_per_shot', 'dribbles_90'],
+        "description": "A winger focused on cutting inside to shoot and score goals, often functioning as a wide forward. They have a high goal threat and strong dribbling ability.",
+        "identity_metrics": ['npg_90', 'np_xg_90', 'np_shots_90', 'touches_inside_box_90', 'np_xg_per_shot', 'dribbles_90', 'over_under_performance_90', 'npxgxa_90', 'op_passes_into_box_90'],
         "key_weight": 1.6
     },
     "Creative Playmaker": {
-        "description": "A winger who creates chances for others through key passes and assists.",
-        "identity_metrics": ['xa_90', 'key_passes_90', 'op_passes_into_box_90', 'through_balls_90', 'op_xgbuildup_90', 'deep_progressions_90'],
+        "description": "A winger who creates chances for others through key passes, crosses, and assists. They are a primary source of creativity from wide areas and often have a high xG buildup contribution.",
+        "identity_metrics": ['xa_90', 'key_passes_90', 'op_passes_into_box_90', 'through_balls_90', 'op_xgbuildup_90', 'deep_progressions_90', 'crosses_90', 'dribbles_90', 'fouls_won_90'],
         "key_weight": 1.5
     },
     "Traditional Winger": {
-        "description": "Focuses on providing width, dribbling down the line, and delivering crosses.",
-        "identity_metrics": ['crosses_90', 'crossing_ratio', 'dribbles_90', 'carry_length', 'deep_progressions_90', 'fouls_won_90'],
+        "description": "A winger who focuses on providing width and stretching the opposition defense. Their primary actions are dribbling down the line and delivering crosses into the box.",
+        "identity_metrics": ['crosses_90', 'crossing_ratio', 'dribbles_90', 'carry_length', 'deep_progressions_90', 'fouls_won_90', 'op_passes_into_box_90', 'turnovers_90'],
         "key_weight": 1.5
+    },
+    "Inverted Winger": {
+        "description": "A winger who plays on the opposite flank of their strong foot, allowing them to cut inside and create. They are defined by a high volume of successful dribbles and a strong role in ball progression and attacking buildup.",
+        "identity_metrics": ['dribbles_90', 'dribble_ratio', 'carries_90', 'carry_length', 'deep_progressions_90', 'op_xgbuildup_90', 'op_passes_into_box_90', 'xa_90'],
+        "key_weight": 1.6
     }
 }
 
@@ -243,7 +248,7 @@ WINGER_RADAR_METRICS = {
             'dribbled_past_90': 'Times Dribbled Past p90', 'aggressive_actions_90': 'Aggressive Actions'
         }
     },
-    # PHYSICAL profile (keep name 'duels' unchanged)
+    # PHYSICAL profile
     'duels': {
         'name': 'Duels & Security', 'color': '#607D8B',
         'metrics': {
@@ -257,41 +262,37 @@ WINGER_RADAR_METRICS = {
 
 CM_ARCHETYPES = {
     "Deep-Lying Playmaker (Regista)": {
-        "description": "Dictates tempo from deep, excels in progressive passing.",
-        "identity_metrics": ['op_xgbuildup_90', 'long_balls_90', 'long_ball_ratio', 'forward_pass_proportion', 'passing_ratio', 'through_balls_90'],
+        "description": "A midfielder who dictates tempo from deep positions, excelling in progressive passing and ball distribution to start attacks. They are the team's engine from the defensive half.",
+        "identity_metrics": ['op_xgbuildup_90', 'long_balls_90', 'long_ball_ratio', 'forward_pass_proportion', 'passing_ratio', 'through_balls_90', 'op_f3_passes_90', 'carries_90'],
         "key_weight": 1.6
     },
     "Box-to-Box Midfielder (B2B)": {
-        "description": "Covers large vertical space, contributes in both boxes.",
-        "identity_metrics": ['deep_progressions_90', 'carries_90', 'padj_tackles_and_interceptions_90', 'pressures_90', 'npg_90', 'touches_inside_box_90'],
+        "description": "A high-energy midfielder who covers large vertical space on the pitch, contributing heavily in both attack and defense. They are involved in ball progression, tackling, and late runs into the box.",
+        "identity_metrics": ['deep_progressions_90', 'carries_90', 'padj_tackles_and_interceptions_90', 'pressures_90', 'npg_90', 'touches_inside_box_90', 'op_xgchain_90', 'offensive_duels_90'],
         "key_weight": 1.6
     },
     "Ball-Winning Midfielder (Destroyer)": {
-        "description": "Breaks up play, screens defense.",
-        "identity_metrics": ['padj_tackles_90', 'padj_interceptions_90', 'pressure_regains_90', 'challenge_ratio', 'aggressive_actions_90', 'fouls_90'],
+        "description": "A defensive-minded midfielder who breaks up opposition attacks, screens the defense, and wins possession. They are defined by their tenacity and high volume of defensive actions.",
+        "identity_metrics": ['padj_tackles_90', 'padj_interceptions_90', 'pressure_regains_90', 'challenge_ratio', 'aggressive_actions_90', 'fouls_90', 'dribbled_past_90'],
         "key_weight": 1.6
     },
     "Advanced Playmaker (Mezzala)": {
-        "description": "Operates in half-spaces, creates in advanced zones.",
-        "identity_metrics": ['xa_90', 'key_passes_90', 'op_passes_into_box_90', 'through_balls_90', 'dribbles_90', 'np_shots_90'],
-        "key_weight": 1.5
-    },
-    "Transition Midfielder (Tempo Carrier)": {
-        "description": "Drives forward in transition, breaks lines with carries.",
-        "identity_metrics": ['carries_90', 'carry_length', 'dribbles_90', 'dribble_ratio', 'deep_progressions_90', 'fouls_won_90'],
+        "description": "A creative midfielder who operates in the half-spaces and creates chances in advanced zones. They are excellent dribblers and key passers who often make runs into the final third.",
+        "identity_metrics": ['xa_90', 'key_passes_90', 'op_passes_into_box_90', 'through_balls_90', 'dribbles_90', 'np_shots_90', 'op_xgbuildup_90', 'deep_progressions_90'],
         "key_weight": 1.5
     },
     "Holding Midfielder (Anchor)": {
-        "description": "Protects the backline, distributes safely.",
-        "identity_metrics": ['padj_interceptions_90', 'passing_ratio', 'op_xgbuildup_90', 'pressures_90', 'challenge_ratio', 'turnovers_90'],
+        "description": "A conservative midfielder who protects the backline and distributes the ball safely and efficiently. They are defined by their positional discipline and high pass completion rate.",
+        "identity_metrics": ['padj_interceptions_90', 'passing_ratio', 'op_xgbuildup_90', 'pressures_90', 'challenge_ratio', 'turnovers_90', 'padj_clearances_90', 's_pass_length'],
         "key_weight": 1.5
     },
     "Attacking Midfielder (8.5 Role)": {
-        "description": "Focused on final-third involvement.",
-        "identity_metrics": ['npg_90', 'np_xg_90', 'xa_90', 'key_passes_90', 'touches_inside_box_90', 'np_shots_90'],
+        "description": "An aggressive, goal-oriented midfielder who operates closer to the opposition box, focusing on final-third involvement and attacking output, similar to a second striker.",
+        "identity_metrics": ['npg_90', 'np_xg_90', 'xa_90', 'key_passes_90', 'touches_inside_box_90', 'np_shots_90', 'op_passes_into_box_90', 'dribbles_90'],
         "key_weight": 1.6
     }
 }
+
 
 CM_RADAR_METRICS = {
     'defending': {
@@ -304,7 +305,7 @@ CM_RADAR_METRICS = {
             'pressures_90': 'Pressures p90'
         }
     },
-    # PHYSICAL profile (keep name 'duels' unchanged; expand set to be physical)
+    # PHYSICAL profile
     'duels': {
         'name': 'Duels & Physicality', 'color': '#AF1D1D',
         'metrics': {
@@ -348,21 +349,27 @@ CM_RADAR_METRICS = {
     }
 }
 
+# --- REVISED FULLBACK_ARCHETYPES ---
 FULLBACK_ARCHETYPES = {
     "Attacking Fullback": {
-        "description": "High attacking output with crosses, key passes, and forward runs into the final third.",
-        "identity_metrics": ['xa_90', 'crosses_90', 'op_passes_into_box_90', 'deep_progressions_90', 'key_passes_90', 'op_xgbuildup_90'],
+        "description": "An offensive-minded full-back with high attacking output, including crosses, key passes, and deep forward runs into the final third to create chances.",
+        "identity_metrics": ['xa_90', 'crosses_90', 'op_passes_into_box_90', 'deep_progressions_90', 'key_passes_90', 'op_xgbuildup_90', 'dribbles_90', 'fouls_won_90'],
         "key_weight": 1.5
     },
     "Defensive Fullback": {
-        "description": "Solid defensive foundation with tackles, interceptions, and aerial duels.",
-        "identity_metrics": ['padj_tackles_and_interceptions_90', 'challenge_ratio', 'aggressive_actions_90', 'pressures_90', 'aerial_wins_90', 'aerial_ratio'],
+        "description": "A traditional full-back with a solid defensive foundation, focusing on preventing attacks through tackling, interceptions, and aerial duels.",
+        "identity_metrics": ['padj_tackles_and_interceptions_90', 'challenge_ratio', 'aggressive_actions_90', 'pressures_90', 'aerial_wins_90', 'aerial_ratio', 'dribbled_past_90', 'padj_clearances_90'],
         "key_weight": 1.5
     },
     "Modern Wingback": {
-        "description": "High energy player who covers huge distances, contributing in all phases of play.",
-        "identity_metrics": ['deep_progressions_90', 'crosses_90', 'dribbles_90', 'padj_tackles_and_interceptions_90', 'pressures_90', 'xa_90'],
+        "description": "A high-energy, all-action player who contributes in both defense and attack. They possess high stamina and cover large distances, excelling in both progression and defensive work rate.",
+        "identity_metrics": ['deep_progressions_90', 'crosses_90', 'dribbles_90', 'padj_tackles_and_interceptions_90', 'pressures_90', 'xa_90', 'pressure_regains_90', 'op_xgbuildup_90'],
         "key_weight": 1.6
+    },
+    "Inverted Fullback": {
+        "description": "A fullback who moves into central midfield areas when their team has possession, excelling at linking play and progressive passing from deep zones.",
+        "identity_metrics": ['passing_ratio', 'deep_progressions_90', 'op_xgbuildup_90', 'carries_90', 'forward_pass_proportion', 'padj_tackles_90', 'padj_interceptions_90', 'dribble_ratio'],
+        "key_weight": 1.7
     }
 }
 
@@ -377,7 +384,7 @@ FULLBACK_RADAR_METRICS = {
             'aggressive_actions_90': 'Aggressive Actions p90'
         }
     },
-    # PHYSICAL profile (keep name 'duels' unchanged; physical emphasis)
+    # PHYSICAL profile
     'duels': {
         'name': 'Duels', 'color': '#008294',
         'metrics': {
@@ -417,21 +424,27 @@ FULLBACK_RADAR_METRICS = {
     }
 }
 
+# --- REVISED CB_ARCHETYPES ---
 CB_ARCHETYPES = {
     "Ball-Playing Defender": {
-        "description": "Comfortable in possession, initiates attacks from the back with progressive passing.",
-        "identity_metrics": ['op_xgbuildup_90', 'passing_ratio', 'long_balls_90', 'long_ball_ratio', 'forward_pass_proportion', 'carries_90'],
+        "description": "A defender comfortable in possession, who initiates attacks from the back with progressive passing, long balls, and carries into midfield. They are defined by their on-ball ability.",
+        "identity_metrics": ['op_xgbuildup_90', 'passing_ratio', 'long_balls_90', 'long_ball_ratio', 'forward_pass_proportion', 'carries_90', 'deep_progressions_90', 'op_f3_passes_90'],
         "key_weight": 1.5
     },
     "Stopper": {
-        "description": "Aggressive defender who steps out to challenge attackers and win the ball high up the pitch.",
-        "identity_metrics": ['aggressive_actions_90', 'padj_tackles_90', 'challenge_ratio', 'pressures_90', 'aerial_wins_90', 'fouls_90'],
+        "description": "An aggressive defender who steps out to challenge attackers and win the ball high up the pitch. They rely on their physical and combative qualities to break up play before it reaches the box.",
+        "identity_metrics": ['aggressive_actions_90', 'padj_tackles_90', 'challenge_ratio', 'pressures_90', 'aerial_wins_90', 'fouls_90', 'pressure_regains_90', 'dribbled_past_90'],
         "key_weight": 1.6
     },
     "Covering Defender": {
-        "description": "Reads the game well, relying on positioning and interceptions to sweep up behind the defensive line.",
-        "identity_metrics": ['padj_interceptions_90', 'padj_clearances_90', 'dribbled_past_90', 'pressure_regains_90', 'aerial_ratio', 'passing_ratio'],
+        "description": "A defender who reads the game well and relies on superior positioning and interceptions to sweep up behind the defensive line. They are defined by their intelligence and ability to recover the ball with minimal duels.",
+        "identity_metrics": ['padj_interceptions_90', 'padj_clearances_90', 'dribbled_past_90', 'pressure_regains_90', 'aerial_ratio', 'passing_ratio', 'turnovers_90', 'average_x_defensive_action'],
         "key_weight": 1.5
+    },
+    "No-Nonsense Defender": {
+        "description": "A physical defender who prioritizes safety and direct action. They excel at aerial duels, clearances, and tackling, with minimal involvement in attacking buildup or ball progression.",
+        "identity_metrics": ['padj_clearances_90', 'aerial_wins_90', 'aerial_ratio', 'padj_tackles_90', 'aggressive_actions_90', 'op_xgbuildup_90', 'passing_ratio', 'turnovers_90'],
+        "key_weight": 1.7
     }
 }
 
@@ -443,7 +456,7 @@ CB_RADAR_METRICS = {
             'aggressive_actions_90': 'Aggressive Actions', 'pressures_90': 'Pressures p90'
         }
     },
-    # PHYSICAL profile (keep name 'aerial_duels' unchanged; expand to physical)
+    # PHYSICAL profile
     'aerial_duels': {
         'name': 'Aerial Duels & Clearances', 'color': '#4CAF50',
         'metrics': {
@@ -483,7 +496,7 @@ CB_RADAR_METRICS = {
     }
 }
 
-# FINALIZED: Corrected positional groupings based on user feedback (unchanged)
+# Positional groupings
 POSITIONAL_CONFIGS = {
     "Fullback": {"archetypes": FULLBACK_ARCHETYPES, "radars": FULLBACK_RADAR_METRICS, "positions": 
                  ['Left Back', 'Left Wing Back', 'Right Back', 'Right Wing Back']},
@@ -510,7 +523,7 @@ ALL_METRICS_TO_PERCENTILE = sorted(list(set(
     for radar in pos_config['radars'].values() for metric in radar['metrics'].keys()
 )))
 
-# --- 4. DATA HANDLING & ANALYSIS FUNCTIONS (CACHED) ---
+# --- 4. DATA HANDLING & ANALYSIS FUNCTIONS (UPDATED) ---
 
 @st.cache_resource(ttl=3600)
 def get_all_leagues_data(_auth_credentials):
@@ -588,11 +601,10 @@ def get_all_leagues_data(_auth_credentials):
 
 @st.cache_data(ttl=3600)
 def process_data(_raw_data):
-    """Processes the raw data to calculate ages and percentiles."""
+    """Processes raw data to calculate ages, position groups, and normalized metrics"""
     if _raw_data is None:
         return None
 
-    # --- Data Cleaning ---
     df_processed = _raw_data.copy()
     df_processed.columns = [c.replace('player_season_', '') for c in df_processed.columns]
     
@@ -602,42 +614,70 @@ def process_data(_raw_data):
             df_processed[col] = df_processed[col].str.strip()
 
     # --- Age Calculation ---
-    def calculate_age_from_birth_date(birth_date_str):
+    def calculate_age(birth_date_str):
         if pd.isna(birth_date_str): return None
         try:
             birth_date = pd.to_datetime(birth_date_str).date()
             today = date.today()
             return today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
         except (ValueError, TypeError): return None
-    df_processed['age'] = df_processed['birth_date'].apply(calculate_age_from_birth_date)
+    df_processed['age'] = df_processed['birth_date'].apply(calculate_age)
+    
+    # --- Position Group Mapping ---
+    def get_position_group(primary_position):
+        for group, config in POSITIONAL_CONFIGS.items():
+            if primary_position in config['positions']:
+                return group
+        return None
+    df_processed['position_group'] = df_processed['primary_position'].apply(get_position_group)
     
     # --- Metric Calculation ---
     if 'padj_tackles_90' in df_processed.columns and 'padj_interceptions_90' in df_processed.columns:
-        df_processed['padj_tackles_and_interceptions_90'] = df_processed['padj_tackles_90'] + df_processed['padj_interceptions_90']
+        df_processed['padj_tackles_and_interceptions_90'] = (
+            df_processed['padj_tackles_90'] + df_processed['padj_interceptions_90']
+        )
     
-    # --- Global Percentile Calculation (unchanged) ---
+    # --- Position-Specific Percentiles & Z-Scores ---
+    negative_stats = ['turnovers_90', 'dispossessions_90', 'dribbled_past_90', 'fouls_90']
+    
     for metric in ALL_METRICS_TO_PERCENTILE:
-        if metric in df_processed.columns:
-            metric_data = df_processed[metric]
-            if pd.api.types.is_numeric_dtype(metric_data) and not metric_data.empty:
-                pct_col = f'{metric}_pct'
-                # Negative stats should be inverted (lower is better)
-                negative_stats = ['turnovers_90', 'dispossessions_90', 'dribbled_past_90', 'fouls_90']
-                if metric in negative_stats:
-                    df_processed[pct_col] = 100 - (metric_data.rank(pct=True) * 100)
-                else:
-                    df_processed[pct_col] = metric_data.rank(pct=True) * 100
-    
-    # Final cleaning of metric columns
+        if metric not in df_processed.columns:
+            continue
+            
+        # Initialize columns
+        df_processed[f'{metric}_pct'] = 0
+        df_processed[f'{metric}_z'] = 0.0
+        
+        # Process by position group
+        for group, group_df in df_processed.groupby('position_group', dropna=False):
+            if group is None or len(group_df) < 5:  # Skip small groups
+                continue
+                
+            metric_series = group_df[metric]
+            
+            # Percentiles
+            if metric in negative_stats:
+                # Invert percentiles for negative stats
+                ranks = metric_series.rank(pct=True, ascending=True)
+                df_processed.loc[group_df.index, f'{metric}_pct'] = (1 - ranks) * 100
+            else:
+                df_processed.loc[group_df.index, f'{metric}_pct'] = metric_series.rank(pct=True) * 100
+            
+            # Z-scores
+            scaler = StandardScaler()
+            z_scores = scaler.fit_transform(metric_series.values.reshape(-1, 1)).flatten()
+            df_processed.loc[group_df.index, f'{metric}_z'] = z_scores
+
+    # Final cleaning
     metric_cols = [col for col in df_processed.columns if '_90' in col or '_ratio' in col or 'length' in col]
     pct_cols = [col for col in df_processed.columns if '_pct' in col]
-    cols_to_clean = list(set(metric_cols + pct_cols))
+    z_cols = [col for col in df_processed.columns if '_z' in col]
+    cols_to_clean = list(set(metric_cols + pct_cols + z_cols))
     df_processed[cols_to_clean] = df_processed[cols_to_clean].fillna(0)
     
     return df_processed
 
-
-# --- 5. ANALYSIS & REPORTING FUNCTIONS ---
+# --- 5. ANALYSIS & REPORTING FUNCTIONS (UPDATED) ---
 
 def find_player_by_name(df, player_name):
     if not player_name: return None, None
@@ -661,89 +701,118 @@ def detect_player_archetype(target_player, archetypes):
     best_archetype = max(archetype_scores, key=archetype_scores.get) if archetype_scores else None
     return best_archetype, pd.DataFrame(archetype_scores.items(), columns=['Archetype', 'Affinity Score']).sort_values(by='Affinity Score', ascending=False)
 
-def find_matches(target_player, pool_df, archetype_config, search_mode='similar', min_minutes=500):
+def find_matches(target_player, pool_df, archetype_config, search_mode='similar', min_minutes=600):
+    """Finds similar players using z-scores and cosine similarity"""
     key_identity_metrics = archetype_config['identity_metrics']
     key_weight = archetype_config['key_weight']
     
-    percentile_metrics = [f'{m}_pct' for m in key_identity_metrics]
+    # Get z-score metrics
+    z_metrics = [f'{m}_z' for m in key_identity_metrics]
+    target_group = target_player['position_group']
     
-    pool_df = pool_df[(pool_df['minutes'] >= min_minutes) & (pool_df['player_id'] != target_player['player_id'])].dropna(subset=percentile_metrics).copy()
+    # Filter pool
+    pool_df = pool_df[
+        (pool_df['minutes'] >= min_minutes) & 
+        (pool_df['player_id'] != target_player['player_id']) & 
+        (pool_df['position_group'] == target_group)
+    ].copy()
+    
     if pool_df.empty:
         return pd.DataFrame()
 
-    target_vector = target_player[percentile_metrics].fillna(50).values.reshape(1, -1)
-    pool_matrix = pool_df[percentile_metrics].values
+    # Prepare vectors
+    target_vector = target_player[z_metrics].fillna(0).values.reshape(1, -1)
+    pool_matrix = pool_df[z_metrics].fillna(0).values
     
-    weights = np.full(len(key_identity_metrics), key_weight)
+    # Apply weights
+    weights = np.full(len(z_metrics), key_weight)
     target_vector_w = target_vector * weights
     pool_matrix_w = pool_matrix * weights
     
+    # Calculate similarity
     similarities = cosine_similarity(target_vector_w, pool_matrix_w)
     pool_df['similarity_score'] = similarities[0] * 100
     
     if search_mode == 'upgrade':
-        pool_df['upgrade_score'] = pool_df[percentile_metrics].mean(axis=1)
+        # For upgrades, use average of percentiles
+        pct_metrics = [f'{m}_pct' for m in key_identity_metrics]
+        pool_df['upgrade_score'] = pool_df[pct_metrics].mean(axis=1)
         return pool_df.sort_values('upgrade_score', ascending=False)
     else:
         return pool_df.sort_values('similarity_score', ascending=False)
 
-# --- Plotly Radar: Interactive with legend-hover highlighting and hover-only percentile labels ---
 
+
+# --- 6. RADAR CHART FUNCTIONS (UPDATED) ---
+
+# This function remains the same as your original code, as it's not a part of the requested changes.
 def _radar_angles_labels(metrics_dict):
     labels = list(metrics_dict.values())
     metrics = list(metrics_dict.keys())
     return metrics, labels
 
+# This function remains the same as your original code, as it's not a part of the requested changes.
 def _player_percentiles_for_metrics(player_series, metrics):
     return [float(player_series.get(f"{m}_pct", 0.0)) for m in metrics]
 
+
 def _build_scatterpolar_trace(player_series, metrics, player_label, color, show_text=False):
+    """
+    Builds a single Scatterpolar trace for a player.
+    Adjusted for increased transparency and a more distinct hover effect.
+    """
     values = _player_percentiles_for_metrics(player_series, metrics)
     # Close the radar by repeating the first point
     values += values[:1]
     theta = metrics + [metrics[0]]
 
-    # Text values are percentile integers; initially hidden (transparent); JS will reveal on legend hover
     text_vals = [f"{int(round(v))}" for v in values]
-    text_vals[-1] = text_vals[0]  # closing point label same as first
+    text_vals[-1] = text_vals[0]
 
     trace = go.Scatterpolar(
         r=values,
         theta=theta,
         mode="lines+markers+text",
         name=player_label,
-        line=dict(width=2),
-        marker=dict(size=5),
+        line=dict(width=2, color=color),
+        marker=dict(size=5, color=color),
         text=text_vals if show_text else text_vals,
-        textfont=dict(size=11, color="rgba(0,0,0,0)"),  # invisible initially
+        textfont=dict(size=11, color="rgba(0,0,0,0)"),
         textposition="top center",
         hovertemplate="%{theta}<br>%{r:.0f}th percentile<extra>" + player_label + "</extra>",
         fill="toself",
-        opacity=0.95,
+        # Lower opacity for a more transparent look
+        fillcolor=f"rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.2)",
+        opacity=0.8,
         legendgroup=player_label,
-        hoveron="points+fills"
+        hoveron="points+fills",
     )
-    # Assign color (line and fill)
-    trace.line.color = color
-    trace.fillcolor = color.replace('#', 'rgba(') if False else color  # will manage alpha via opacity
     return trace
 
 def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
     """
-    Returns a Plotly Figure for a single radar (one of the 6), with multiple players overlaid.
-    Legend hover will be handled via injected JS in render_plotly_with_legend_hover().
+    Generates a Plotly Figure for a radar chart with multiple players.
+    Uses the specified color palette for improved readability.
     """
     metrics_dict = radar_config['metrics']
     group_name = radar_config['name']
-    base_color = radar_config.get('color', '#1f77b4')
 
+    # This function is correct and returns a list of metrics and labels
     metrics, labels = _radar_angles_labels(metrics_dict)
 
-    # Distinct but harmonious colors (keep stable ordering)
+    # Updated color palette as requested
     palette = [
-        "#00f2ff", "#ff0052", "#00ff7f", "#ffc400",
-        "#c800ff", "#f97306", "#1E90FF", "#FF7F50"
+        '#FF0000',  # Red
+        '#0000FF',  # Blue
+        '#00FF00',  # Green
+        '#FFA500',  # Orange
+        '#FFC0CB',  # Pink
     ]
+    # Fallback colors if more than 5 players are compared
+    fallback_palette = [
+        "#FFFF00", "#00FFFF", "#800080", "#FFD700"
+    ]
+    full_palette = palette + fallback_palette
 
     fig = go.Figure()
 
@@ -751,8 +820,33 @@ def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
         player_name = player_series.get('player_name', 'Unknown')
         season_name = player_series.get('season_name', 'Unknown')
         label = f"{player_name} ({season_name})"
-        color = palette[i % len(palette)]
-        trace = _build_scatterpolar_trace(player_series, metrics, label, color, show_text=False)
+        color = full_palette[i % len(full_palette)]
+
+        # Convert hex to RGB for a slight transparency
+        rgb_color = tuple(int(color[j:j+2], 16) for j in (1, 3, 5))
+        rgba_fillcolor = f'rgba({rgb_color[0]}, {rgb_color[1]}, {rgb_color[2]}, 0.2)'
+        
+        # Get the percentile values for the player's metrics
+        percentile_values = _player_percentiles_for_metrics(player_series, metrics)
+        
+        # Build the trace with the specified color
+        trace = go.Scatterpolar(
+            r=percentile_values + [percentile_values[0]],
+            theta=metrics + [metrics[0]],
+            mode="lines+markers+text",
+            name=label,
+            line=dict(width=2, color=color),
+            marker=dict(size=5, color=color),
+            text=[f"{int(round(v))}" for v in percentile_values] + [f"{int(round(percentile_values[0]))}"],
+            textfont=dict(size=11, color="rgba(0,0,0,0)"),
+            textposition="top center",
+            hovertemplate="%{theta}<br>%{r:.0f}th percentile<extra>" + label + "</extra>",
+            fill="toself",
+            fillcolor=rgba_fillcolor,
+            opacity=0.8,
+            legendgroup=label,
+            hoveron="points+fills",
+        )
         fig.add_trace(trace)
 
     fig.update_layout(
@@ -774,7 +868,7 @@ def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
         polar=dict(
             bgcolor=bg_color,
             radialaxis=dict(range=[0, 100], showline=False, showticklabels=True, tickfont=dict(color="white", size=10),
-                            gridcolor="rgba(255,255,255,0.15)", tickangle=0),
+                             gridcolor="rgba(255,255,255,0.15)", tickangle=0),
             angularaxis=dict(
                 tickvals=metrics,
                 ticktext=labels,
@@ -788,40 +882,43 @@ def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
         hovermode="closest"
     )
 
-    # Extra padding below legend so labels never collide
     fig.update_layout(height=520)
 
     return fig, metrics
 
 def render_plotly_with_legend_hover(fig, metrics, height=520):
     """
-    Renders Plotly fig inside Streamlit with custom JS to:
-    - On legend hover: highlight target trace (opacity 1.0, text visible), dim others (opacity ~0.2, text hidden).
-    - On legend unhover: reset opacities and hide text labels again.
-    - Percentile labels appear on-chart only for hovered player.
+    Renders Plotly radar inside Streamlit with:
+    - On legend hover: highlight target trace (opacity 1.0), fade others (0.2)
+    - Show percentile text only for hovered or selected player
+    - When exactly one player is visible (via legend click): keep that player's labels visible
     """
     div_id = f"plotly-radar-{uuid.uuid4().hex}"
     html = pio.to_html(fig, include_plotlyjs='cdn', full_html=False, div_id=div_id)
-    # Inject custom JS handlers
+
     custom_js = f"""
     <script>
       (function() {{
         const el = document.getElementById('{div_id}');
         if (!el) return;
+
         const resetStyles = () => {{
           const gd = el;
           const data = gd.data || [];
           for (let i = 0; i < data.length; i++) {{
             Plotly.restyle(gd, {{
-              'opacity': 0.95,
+              'opacity': 0.8,
               'textfont.color': 'rgba(0,0,0,0)',
-              'line.width': 2
+              'line.width': 2,
+              'line.color': gd.data[i].line.color
             }}, [i]);
           }}
         }};
+
         el.addEventListener('plotly_afterplot', function() {{
           resetStyles();
         }});
+
         el.on('plotly_legendhover', function(evt) {{
           const gd = el;
           const idx = evt.curveNumber;
@@ -831,93 +928,80 @@ def render_plotly_with_legend_hover(fig, metrics, height=520):
             if (i === idx) {{
               Plotly.restyle(gd, {{
                 'opacity': 1.0,
-                'textfont.color': '#ffffff',
-                'line.width': 3.5
+                'textfont.color': '#ffffff',   // Show percentiles for hovered
+                'line.width': 3.5,
+                'line.color': gd.data[i].line.color
               }}, [i]);
             }} else {{
               Plotly.restyle(gd, {{
                 'opacity': 0.2,
                 'textfont.color': 'rgba(0,0,0,0)',
-                'line.width': 2
+                'line.width': 2,
+                'line.color': 'grey'
               }}, [i]);
             }}
           }}
         }});
+
         el.on('plotly_legendunhover', function(evt) {{
           resetStyles();
         }});
-        // Also allow legend click to isolate
+
         el.on('plotly_legendclick', function(evt) {{
-          // Let Plotly handle visibility toggling; keep our styling consistent
+          // Let Plotly handle visibility, then apply our custom styles
           setTimeout(() => {{
             const gd = el;
             const data = gd.data || [];
-            // If exactly one trace is visible, show its text; others hidden
             const visibleIdx = [];
             data.forEach((tr, i) => {{
               if (tr.visible === true || tr.visible === undefined) visibleIdx.push(i);
             }});
+
             if (visibleIdx.length === 1) {{
               for (let i = 0; i < data.length; i++) {{
                 Plotly.restyle(gd, {{
                   'textfont.color': (i === visibleIdx[0]) ? '#ffffff' : 'rgba(0,0,0,0)',
                   'opacity': (i === visibleIdx[0]) ? 1.0 : 0.2,
-                  'line.width': (i === visibleIdx[0]) ? 3.5 : 2
+                  'line.width': (i === visibleIdx[0]) ? 3.5 : 2,
+                  'line.color': (i === visibleIdx[0]) ? gd.data[i].line.color : 'grey'
                 }}, [i]);
               }}
             }} else {{
-              // Reset when multiple visible
-              const n = data.length;
-              for (let i = 0; i < n; i++) {{
-                Plotly.restyle(gd, {{
-                  'textfont.color': 'rgba(0,0,0,0)',
-                  'opacity': 0.95,
-                  'line.width': 2
-                }}, [i]);
-              }}
+              resetStyles();
             }}
           }}, 0);
-          return false; // allow default toggle
+          return false;
         }});
       }})();
     </script>
     """
-    # Wrap to ensure proper spacing beneath
+
     wrapped = f"""
     <div style="margin-bottom: 28px;">
       {html}
       {custom_js}
     </div>
     """
+
     components.html(wrapped, height=height + 60, scrolling=False)
 
-# --- 6. STREAMLIT APP LAYOUT ---
-st.title("⚽ Advanced Multi-Position Player Analysis Tool")
 
-if 'analysis_run' not in st.session_state:
-    st.session_state.analysis_run = False
-if 'comparison_players' not in st.session_state:
-    st.session_state.comparison_players = []
-if "comp_selections" not in st.session_state:
-    st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
 
-# Main data loading with error handling
+# --- 7. STREAMLIT APP LAYOUT (UPDATED) ---
+st.title("⚽ Advanced Multi-Position Player Analysis v10.1")
+
+# Main data loading
 processed_data = None
-raw_data = None
-
-try:
-    with st.spinner("Loading and processing data for all leagues... This may take a moment."):
-        raw_data = get_all_leagues_data((USERNAME, PASSWORD))
-        if raw_data is not None:
-            processed_data = process_data(raw_data)
-        else:
-            st.error("Failed to load data. Please check your API credentials and internet connection.")
-except Exception as e:
-    st.error(f"An error occurred while loading data: {e}")
+with st.spinner("Loading and processing data for all leagues..."):
+    raw_data = get_all_leagues_data((USERNAME, PASSWORD))
+    if raw_data is not None:
+        processed_data = process_data(raw_data)
+    else:
+        st.error("Failed to load data. Please check credentials and connection.")
 
 scouting_tab, comparison_tab = st.tabs(["Scouting Analysis", "Direct Comparison"])
 
-# Reusable filter component with position-awareness
+# Player filter UI component
 def create_player_filter_ui(data, key_prefix, pos_filter=None):
     leagues = sorted(data['league_name'].dropna().unique())
     
@@ -935,7 +1019,7 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
                 valid_positions = POSITIONAL_CONFIGS[pos_filter]['positions']
                 season_df_filtered = season_df[season_df['primary_position'].isin(valid_positions)]
                 
-                # Diagnostic message unchanged
+                # Diagnostic message
                 if season_df_filtered.empty and not season_df.empty:
                     available_pos = sorted(season_df['primary_position'].unique())
                     st.warning(f"No players found for '{pos_filter}'. Available positions in this selection: {available_pos}")
@@ -972,82 +1056,125 @@ def create_player_filter_ui(data, key_prefix, pos_filter=None):
 with scouting_tab:
     if processed_data is not None:
         st.sidebar.header("🔍 Scouting Controls")
-        
         pos_options = list(POSITIONAL_CONFIGS.keys())
-        selected_pos = st.sidebar.selectbox("1. Select a Position to Analyze", pos_options, key="scout_pos")
-        
-        filter_by_pos = st.sidebar.checkbox("Filter player list by selected position", value=True, key="pos_filter_toggle")
+        selected_pos = st.sidebar.selectbox("1. Select Position", pos_options, key="scout_pos")
+        filter_by_pos = st.sidebar.checkbox("Filter by position", value=True, key="pos_filter_toggle")
         
         st.sidebar.subheader("Select Target Player")
-        
+        min_minutes = st.sidebar.slider("Minimum Minutes Played", 0, 3000, 600, 100)
         pos_filter_arg = selected_pos if filter_by_pos else None
         target_player = create_player_filter_ui(processed_data, key_prefix="scout", pos_filter=pos_filter_arg)
         
         search_mode = st.sidebar.radio("Search Mode", ('Find Similar Players', 'Find Potential Upgrades'), key='scout_mode')
         search_mode_logic = 'upgrade' if search_mode == 'Find Potential Upgrades' else 'similar'
 
-        if st.sidebar.button("Analyze Player", type="primary", key="scout_analyze"):
-            if target_player is not None:
-                st.session_state.analysis_run = True
-                st.session_state.target_player = target_player
-                
-                config = POSITIONAL_CONFIGS[selected_pos]
-                archetypes = config["archetypes"]
-                position_pool = processed_data[processed_data['primary_position'].isin(config['positions'])]
-
-                detected_archetype, dna_df = detect_player_archetype(target_player, archetypes)
-                st.session_state.detected_archetype = detected_archetype
-                st.session_state.dna_df = dna_df
-                
-                if detected_archetype:
-                    archetype_config = archetypes[detected_archetype]
-                    matches = find_matches(target_player, position_pool, archetype_config, search_mode_logic)
-                    st.session_state.matches = matches
-                else:
-                    st.session_state.matches = pd.DataFrame() 
-            else:
-                st.session_state.analysis_run = True
-                st.session_state.target_player = None
-                st.sidebar.warning("Please select a valid player to analyze.")
-
-        if st.session_state.analysis_run:
-            if 'target_player' in st.session_state and st.session_state.target_player is not None:
-                tp = st.session_state.target_player
-                dna_df = st.session_state.dna_df
-                matches = st.session_state.matches
-                
-                st.header(f"Analysis for: {tp['player_name']} ({tp['season_name']})")
-                
-                if st.session_state.detected_archetype:
-                    st.subheader(f"Detected Archetype: {st.session_state.detected_archetype}")
-                    col1, col2 = st.columns([1, 2])
-                    with col1:
-                        st.dataframe(dna_df.reset_index(drop=True), hide_index=True)
-                    with col2:
-                        st.write(f"**Description**: {POSITIONAL_CONFIGS[selected_pos]['archetypes'][st.session_state.detected_archetype]['description']}")
-
-                    st.subheader(f"Top 10 Matches ({search_mode})")
-                    if not matches.empty:
-                        display_cols = ['player_name', 'age', 'team_name', 'league_name', 'season_name']
-                        score_col = 'upgrade_score' if search_mode_logic == 'upgrade' else 'similarity_score'
-                        display_cols.insert(2, score_col)
-                        
-                        matches_display = matches.head(10)[display_cols].copy()
-                        matches_display[score_col] = matches_display[score_col].round(1)
-                        st.dataframe(matches_display.rename(columns=lambda c: c.replace('_', ' ').title()), hide_index=True)
-                    else:
-                        st.warning("No players found matching the criteria.")
-                else:
-                    st.warning("Could not determine an archetype for this player, possibly due to missing data.")
-            else:
-                st.info("Select a position and a target player in the sidebar to begin analysis.")
-    else:
-        st.error("Data could not be loaded. Please check your API credentials and network connection.")
+        if st.sidebar.button("Analyze Player", type="primary", key="scout_analyze") and target_player is not None:
+            st.session_state.analysis_run = True
+            st.session_state.target_player = target_player
             
+            config = POSITIONAL_CONFIGS[selected_pos]
+            archetypes = config["archetypes"]
+            position_pool = processed_data[processed_data['primary_position'].isin(config['positions'])]
+
+            detected_archetype, dna_df = detect_player_archetype(target_player, archetypes)
+            st.session_state.detected_archetype = detected_archetype
+            st.session_state.dna_df = dna_df
+            
+            if detected_archetype:
+                archetype_config = archetypes[detected_archetype]
+                matches = find_matches(
+                    target_player, 
+                    position_pool, 
+                    archetype_config, 
+                    search_mode_logic,
+                    min_minutes
+                )
+                st.session_state.matches = matches
+            else:
+                st.session_state.matches = pd.DataFrame()
+
+        if st.session_state.analysis_run and 'target_player' in st.session_state and st.session_state.target_player is not None:
+            tp = st.session_state.target_player
+            st.header(f"Analysis: {tp['player_name']} ({tp['season_name']})")
+            
+            if st.session_state.detected_archetype:
+                st.subheader(f"Detected Archetype: {st.session_state.detected_archetype}")
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.dataframe(st.session_state.dna_df.reset_index(drop=True), hide_index=True)
+                with col2:
+                    st.write(f"**Description**: {POSITIONAL_CONFIGS[selected_pos]['archetypes'][st.session_state.detected_archetype]['description']}")
+
+                st.subheader(f"Top 10 Matches ({search_mode})")
+                if st.session_state.matches is not None and not st.session_state.matches.empty:
+                    display_cols = ['player_name', 'age', 'team_name', 'league_name', 'season_name']
+                    score_col = 'upgrade_score' if search_mode_logic == 'upgrade' else 'similarity_score'
+                    display_cols.insert(2, score_col)
+                    
+                    matches_display = st.session_state.matches.head(10)[display_cols].copy()
+                    matches_display[score_col] = matches_display[score_col].round(1)
+                    st.dataframe(matches_display.rename(columns=lambda c: c.replace('_', ' ').title()), hide_index=True)
+                    
+                    # Add to radar buttons
+                    st.subheader("Add Players to Radar")
+                    for i, row in st.session_state.matches.head(10).iterrows():
+                        btn_key = f"add_{row['player_id']}_{row['season_id']}"
+                        if st.button(f"Add {row['player_name']} to Radar", key=btn_key):
+                            # Check if already added
+                            if not any(
+                                p['player_id'] == row['player_id'] and 
+                                p['season_id'] == row['season_id']
+                                for p in st.session_state.radar_players
+                            ):
+                                st.session_state.radar_players.append(row)
+                                st.rerun()
+                else:
+                    st.warning("No matching players found")
+
+            # Display radar players
+            if st.session_state.radar_players:
+                st.subheader("Players on Radar")
+                radar_cols = st.columns(len(st.session_state.radar_players) or 1)
+                for i, player_data in enumerate(st.session_state.radar_players):
+                    with radar_cols[i]:
+                        st.markdown(f"**{player_data['player_name']}**")
+                        st.markdown(f"{player_data['team_name']} | {player_data['league_name']}")
+                        st.markdown(f"`{player_data['season_name']}`")
+                        if st.button("❌ Remove", key=f"remove_{i}"):
+                            st.session_state.radar_players.pop(i)
+                            st.rerun()
+
+            # Display radar charts for selected players
+            if st.session_state.radar_players or st.session_state.analysis_run:
+                st.subheader("Player Radars")
+                players_to_show = [st.session_state.target_player] + st.session_state.radar_players
+                radars_to_show = POSITIONAL_CONFIGS[selected_pos]['radars']
+                
+                # Layout: 3 columns per row
+                num_radars = len(radars_to_show)
+                cols = st.columns(3) 
+                radar_items = list(radars_to_show.items())
+
+                for i in range(num_radars):
+                    with cols[i % 3]:
+                        radar_key, radar_config = radar_items[i]
+                        fig, metrics = create_plotly_radar(players_to_show, radar_config)
+                        render_plotly_with_legend_hover(fig, metrics, height=520)
+        else:
+            st.info("Select a position and target player to begin analysis")
+    else:
+        st.error("Data could not be loaded. Please check your credentials.")
+
 with comparison_tab:
     st.header("Multi-Player Direct Comparison")
 
     if processed_data is not None:
+        # Ensure state is initialized
+        if 'comp_selections' not in st.session_state:
+            st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
+        if 'comparison_players' not in st.session_state:
+            st.session_state.comparison_players = []
+            
         def player_filter_ui_comp(data, key_prefix):
             state = st.session_state.comp_selections
             
@@ -1057,48 +1184,61 @@ with comparison_tab:
             selected_league = st.selectbox("League", leagues, key=f"{key_prefix}_league", index=league_idx, placeholder="Choose a league")
             
             if selected_league != state['league']:
-                state['league'] = selected_league
-                state['season'] = None; state['team'] = None; state['player'] = None
+                st.session_state.comp_selections['league'] = selected_league
+                st.session_state.comp_selections['season'] = None
+                st.session_state.comp_selections['team'] = None
+                st.session_state.comp_selections['player'] = None
                 st.rerun()
 
-            if state['league']:
-                league_df = data[data['league_name'] == state['league']]
+            if st.session_state.comp_selections['league']:
+                league_df = data[data['league_name'] == st.session_state.comp_selections['league']]
                 seasons = sorted(league_df['season_name'].unique())
                 season_idx = seasons.index(state['season']) if state['season'] in seasons else None
                 selected_season = st.selectbox("Season", seasons, key=f"{key_prefix}_season", index=season_idx, placeholder="Choose a season")
                 
                 if selected_season != state['season']:
-                    state['season'] = selected_season
-                    state['team'] = None; state['player'] = None
+                    st.session_state.comp_selections['season'] = selected_season
+                    st.session_state.comp_selections['team'] = None
+                    st.session_state.comp_selections['player'] = None
                     st.rerun()
 
-            if state['season']:
-                season_df = data[(data['league_name'] == state['league']) & (data['season_name'] == state['season'])]
+            if st.session_state.comp_selections['season']:
+                season_df = data[
+                    (data['league_name'] == st.session_state.comp_selections['league']) & 
+                    (data['season_name'] == st.session_state.comp_selections['season'])
+                ]
                 teams = ["All Teams"] + sorted(season_df['team_name'].unique())
                 team_idx = teams.index(state['team']) if state['team'] in teams else 0
                 selected_team = st.selectbox("Team", teams, key=f"{key_prefix}_team", index=team_idx)
                 
                 if selected_team != state['team']:
-                    state['team'] = selected_team
-                    state['player'] = None
+                    st.session_state.comp_selections['team'] = selected_team
+                    st.session_state.comp_selections['player'] = None
                     st.rerun()
 
-            if state['team']:
-                if state['team'] != "All Teams":
-                    player_pool = data[(data['league_name'] == state['league']) & (data['season_name'] == state['season']) & (data['team_name'] == state['team'])]
+            if st.session_state.comp_selections['team']:
+                if st.session_state.comp_selections['team'] != "All Teams":
+                    player_pool = data[
+                        (data['league_name'] == st.session_state.comp_selections['league']) & 
+                        (data['season_name'] == st.session_state.comp_selections['season']) & 
+                        (data['team_name'] == st.session_state.comp_selections['team'])
+                    ]
                 else:
-                    player_pool = data[(data['league_name'] == state['league']) & (data['season_name'] == state['season'])]
+                    player_pool = data[
+                        (data['league_name'] == st.session_state.comp_selections['league']) & 
+                        (data['season_name'] == st.session_state.comp_selections['season'])
+                    ]
                 
                 players = sorted(player_pool['player_name'].unique())
                 player_idx = players.index(state['player']) if state['player'] in players else None
                 selected_player_name = st.selectbox("Player", players, key=f"{key_prefix}_player", index=player_idx, placeholder="Choose a player")
-                state['player'] = selected_player_name
+                st.session_state.comp_selections['player'] = selected_player_name
             
-            if state['player']:
+            if st.session_state.comp_selections['player']:
                 player_instance = processed_data[
-                    (processed_data['player_name'] == state['player']) & 
-                    (processed_data['season_name'] == state['season']) &
-                    (processed_data['league_name'] == state['league'])
+                    (processed_data['player_name'] == st.session_state.comp_selections['player']) & 
+                    (processed_data['season_name'] == st.session_state.comp_selections['season']) &
+                    (processed_data['league_name'] == st.session_state.comp_selections['league'])
                 ]
                 if not player_instance.empty:
                     return player_instance.iloc[0]
@@ -1110,9 +1250,15 @@ with comparison_tab:
 
             if st.button("Add Player", type="primary"):
                 if player_instance is not None:
-                    if not any(player_instance.equals(p) for p in st.session_state.comparison_players):
+                    # Create a unique identifier for the player+season
+                    player_id = f"{player_instance['player_id']}_{player_instance['season_id']}"
+                    
+                    # Check if already added
+                    if not any(
+                        f"{p['player_id']}_{p['season_id']}" == player_id 
+                        for p in st.session_state.comparison_players
+                    ):
                         st.session_state.comparison_players.append(player_instance)
-                        st.session_state.comp_selections = {"league": None, "season": None, "team": None, "player": None}
                         st.rerun()
                     else:
                         st.warning("This player and season is already in the comparison.")
@@ -1131,7 +1277,7 @@ with comparison_tab:
                     st.markdown(f"**{player_data['player_name']}**")
                     st.markdown(f"*{player_data['team_name']}*")
                     st.markdown(f"`{player_data['season_name']}`")
-                    if st.button("Remove", key=f"remove_{i}"):
+                    if st.button("Remove", key=f"remove_comp_{i}"):
                         st.session_state.comparison_players.pop(i)
                         st.rerun()
 
@@ -1156,4 +1302,7 @@ with comparison_tab:
                     fig, metrics = create_plotly_radar(st.session_state.comparison_players, radar_config)
                     render_plotly_with_legend_hover(fig, metrics, height=520)
     else:
-        st.error("Data could not be loaded. Please check your API credentials and network connection.")
+        st.error("Data could not be loaded. Please check your credentials.")
+
+
+
