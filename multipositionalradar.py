@@ -1165,7 +1165,20 @@ with comparison_tab:
                     (processed_data['season_name'] == st.session_state.comp_selections['season']) &
                     (processed_data['league_name'] == st.session_state.comp_selections['league'])
                 ]
-                if not player_instance.empty:
+             if st.session_state.comp_selections['team']:
+                if st.session_state.comp_selections['team'] != "All Teams":
+                    player_pool = data[
+                        (data['league_name'] == st.session_state.comp_selections['league']) & 
+                        (data['season_name'] == st.session_state.comp_selections['season']) & 
+                        (data['team_name'] == st.session_state.comp_selections['team'])
+                    ]
+                else:
+                    player_pool = data[
+                        (data['league_name'] == st.session_state.comp_selections['league']) & 
+                        (data['season_name'] == st.session_state.comp_selections['season'])
+                    ]
+                
+                if not player_pool.empty:
                     player_pool_display = player_pool.copy()
                     player_pool_display['age_str'] = player_pool_display['age'].apply(lambda x: str(int(x)) if pd.notna(x) else 'N/A')
                     player_pool_display['display_name'] = (
@@ -1182,7 +1195,7 @@ with comparison_tab:
                         if matching_displays:
                             player_idx = players.index(matching_displays[0])
                     
-                    selected_display_name = st.selectbox("Player", players, key=f"{key_prefix}_player", index=player_idx, placeholder="Choose a player")
+                    selected_display_name = st.selectbox("Player", players, key=f"{key_prefix}_player_detailed", index=player_idx, placeholder="Choose a player")
                     
                     if selected_display_name:
                         # Extract the actual player name from the display name
