@@ -888,41 +888,24 @@ def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
 
 def render_plotly_with_legend_hover(fig, metrics, height=520):
     """
-    Native Plotly implementation for Streamlit:
-    - Uses selected/unselected trace styling for dynamic highlighting
-    - Always hides text initially
-    - Shows percentiles dynamically when a trace is highlighted
+    Compatible solution for polar charts:
+    - Hides text initially (percentiles invisible)
+    - Uses 'toggleothers' for legend click behavior
+    - Leaves opacity management to Plotly (click isolates player)
     """
-
-    # Apply default text as hidden (transparent)
+    # Hide text initially
     fig.update_traces(
-        textfont=dict(color="rgba(0,0,0,0)"),  # Hide text initially
+        textfont=dict(color="rgba(0,0,0,0)"),  # Transparent text
         selector=dict(mode="lines+markers+text")
     )
 
-    # Configure interactive behavior
-    fig.update_traces(
-        selected=dict(
-            textfont=dict(color="#ffffff"),  # Show text when selected
-            opacity=1.0,
-            line=dict(width=3.5)
-        ),
-        unselected=dict(
-            textfont=dict(color="rgba(0,0,0,0)"),  # Hide text for others
-            opacity=0.2,
-            line=dict(width=2, color="grey")
-        ),
-        selector=dict(mode="lines+markers+text")
-    )
-
-    # Enable selection on legend click
+    # Enable isolate on legend click
     fig.update_layout(
         legend_itemclick="toggleothers",
         legend_itemdoubleclick="toggle"
     )
 
     st.plotly_chart(fig, use_container_width=True, height=height)
-
 
 
 # --- 7. STREAMLIT APP LAYOUT (UPDATED) ---
