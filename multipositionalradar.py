@@ -888,103 +888,40 @@ def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
 
 def render_plotly_with_legend_hover(fig, metrics, height=520):
     """
-    Renders Plotly radar inside Streamlit with:
-    - On legend hover: highlight target trace (opacity 1.0), fade others (0.2)
-    - Show percentile text only for hovered or selected player
-    - When exactly one player is visible: keep that player's labels visible
-    Works for multiple charts on the same page (unique div IDs).
-    """
-    div_id = f"plotly-radar-{uuid.uuid4().hex}"
-    html = pio.to_html(fig, include_plotlyjs='cdn', full_html=False, div_id=div_id)
-
-    custom_js = f"""
-    <script>
-      (function() {{
-        const el = document.getElementById('{div_id}');
-        if (!el) return;
-
-        const waitForPlotly = setInterval(() => {{
-          if (el && el.data) {{
-            clearInterval(waitForPlotly);
-
-            const resetStyles = () => {{
-              const gd = el;
-              const data = gd.data || [];
-              for (let i = 0; i < data.length; i++) {{
-                Plotly.restyle(gd, {{
-                  'opacity': 0.8,
-                  'textfont.color': 'rgba(0,0,0,0)',
-                  'line.width': 2,
-                  'line.color': gd.data[i].line.color
-                }}, [i]);
-              }}
-            }};
-
-            el.on('plotly_legendhover', function(evt) {{
-              const idx = evt.curveNumber;
-              if (idx == null) return;
-              const n = (el.data || []).length;
-              for (let i = 0; i < n; i++) {{
-                if (i === idx) {{
-                  Plotly.restyle(el, {{
-                    'opacity': 1.0,
-                    'textfont.color': '#ffffff',
-                    'line.width': 3.5,
-                    'line.color': el.data[i].line.color
-                  }}, [i]);
-                }} else {{
-                  Plotly.restyle(el, {{
-                    'opacity': 0.2,
-                    'textfont.color': 'rgba(0,0,0,0)',
-                    'line.width': 2,
-                    'line.color': 'grey'
-                  }}, [i]);
-                }}
-              }}
-            }});
-
-            el.on('plotly_legendunhover', function(evt) {{
-              resetStyles();
-            }});
-
-            el.on('plotly_legendclick', function(evt) {{
-              setTimeout(() => {{
-                const visibleIdx = [];
-                (el.data || []).forEach((tr, i) => {{
-                  if (tr.visible === true || tr.visible === undefined) visibleIdx.push(i);
-                }});
-
-                if (visibleIdx.length === 1) {{
-                  for (let i = 0; i < el.data.length; i++) {{
-                    Plotly.restyle(el, {{
-                      'textfont.color': (i === visibleIdx[0]) ? '#ffffff' : 'rgba(0,0,0,0)',
-                      'opacity': (i === visibleIdx[0]) ? 1.0 : 0.2,
-                      'line.width': (i === visibleIdx[0]) ? 3.5 : 2,
-                      'line.color': (i === visibleIdx[0]) ? el.data[i].line.color : 'grey'
-                    }}, [i]);
-                  }}
-                }} else {{
-                  resetStyles();
-                }}
-              }}, 0);
-              return false;
-            }});
-
-            resetStyles();
-          }}
-        }}, 100);
-      }})();
-    </script>
+    Native Plotly implementation for Streamlit:
+    - Uses selected/unselected trace styling for dynamic highlighting
+    - Always hides text initially
+    - Shows percentiles dynamically when a trace is highlighted
     """
 
-    wrapped = f"""
-    <div style="margin-bottom: 28px;">
-      {html}
-      {custom_js}
-    </div>
-    """
+    # Apply default text as hidden (transparent)
+    fig.update_traces(
+        textfont=dict(color="rgba(0,0,0,0)"),  # Hide text initially
+        selector=dict(mode="lines+markers+text")
+    )
 
-    components.html(wrapped, height=height + 60, scrolling=False)
+    # Configure interactive behavior
+    fig.update_traces(
+        selected=dict(
+            textfont=dict(color="#ffffff"),  # Show text when selected
+            opacity=1.0,
+            line=dict(width=3.5)
+        ),
+        unselected=dict(
+            textfont=dict(color="rgba(0,0,0,0)"),  # Hide text for others
+            opacity=0.2,
+            line=dict(width=2, color="grey")
+        ),
+        selector=dict(mode="lines+markers+text")
+    )
+
+    # Enable selection on legend click
+    fig.update_layout(
+        legend_itemclick="toggleothers",
+        legend_itemdoubleclick="toggle"
+    )
+
+    st.plotly_chart(fig, use_container_width=True, height=height)
 
 
 
