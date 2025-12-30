@@ -49,6 +49,8 @@ if 'dna_df' not in st.session_state:
     st.session_state.dna_df = None
 if 'matches' not in st.session_state:
     st.session_state.matches = None
+if 'unknown_age_count' not in st.session_state:
+    st.session_state.unknown_age_count = 0
 
 # --- 3. CORE & POSITIONAL CONFIGURATIONS ---
 import os
@@ -93,6 +95,9 @@ COMPETITION_SEASONS = {
     1848: [281, 317, 318],
     1865: [318]
 }
+
+DOMESTIC_LEAGUE_IDS = [4, 5, 65, 1385, 166]
+SCOTTISH_LEAGUE_IDS = [51]
 
 # Archetype definitions
 STRIKER_ARCHETYPES = {
@@ -989,8 +994,12 @@ with scouting_tab:
         selected_pos = st.sidebar.selectbox("1. Select Position", pos_options, key="scout_pos")
         filter_by_pos = st.sidebar.checkbox("Filter dropdowns by position group", value=True, key="pos_filter_toggle")
 
+        league_filter_options = ["All Leagues", "Domestic Leagues", "Scottish Leagues"]
+        selected_league_filter = st.sidebar.selectbox("League Filter", league_filter_options, key="league_filter")
+
         st.sidebar.subheader("Select Target Player")
         min_minutes = st.sidebar.slider("Minimum Minutes Played", 0, 3000, 600, 100)
+        age_range = st.sidebar.slider("Age Range", 16, 40, (16, 40), key="age_range")
         pos_filter_arg = selected_pos if filter_by_pos else None
         target_player = create_player_filter_ui(processed_data, key_prefix="scout", pos_filter=pos_filter_arg)
 
@@ -1035,6 +1044,22 @@ with scouting_tab:
 
                     search_pool = position_pool[position_pool['canonical_season'].isin(seasons_to_search)]
                     
+                    # Apply league filter
+                    if selected_league_filter == "Domestic Leagues" and 'competition_id' in search_pool.columns:
+                        search_pool = search_pool[search_pool['competition_id'].isin(DOMESTIC_LEAGUE_IDS)]
+                    elif selected_league_filter == "Scottish Leagues" and 'competition_id' in search_pool.columns:
+                        search_pool = search_pool[search_pool['competition_id'].isin(SCOTTISH_LEAGUE_IDS)]
+                    
+                    # Apply age filter
+                    unknown_age_count = 0
+                    if 'age' in search_pool.columns:
+                        unknown_age_count = search_pool['age'].isna().sum()
+                        known_ages = search_pool[search_pool['age'].notna()]
+                        filtered_known = known_ages[(known_ages['age'] >= age_range[0]) & (known_ages['age'] <= age_range[1])]
+                        search_pool = pd.concat([filtered_known, search_pool[search_pool['age'].isna()]], ignore_index=True)
+                    
+                    st.session_state.unknown_age_count = unknown_age_count
+                    
                     matches = find_matches(
                         target_player,
                         search_pool,
@@ -1064,6 +1089,9 @@ with scouting_tab:
 
                 st.subheader(f"Top 10 Matches ({search_mode})")
                 if st.session_state.matches is not None and not st.session_state.matches.empty:
+                    if st.session_state.get('unknown_age_count', 0) > 0:
+                        st.caption(f"Including {st.session_state.unknown_age_count} players with unknown ages.")
+                    
                     display_cols = ['player_name', 'age', 'primary_position', 'team_name', 'league_name', 'season_name']
                     score_col = 'upgrade_score' if search_mode_logic == 'upgrade' else 'similarity_score'
                     display_cols.insert(1, score_col)
