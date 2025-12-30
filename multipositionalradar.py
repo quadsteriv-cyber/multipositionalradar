@@ -886,7 +886,7 @@ def create_plotly_radar(players_data, radar_config, bg_color="#111111"):
 
 def render_plotly_with_legend_hover(fig, metrics, height=520, player_names=None):
     """Adds a checkbox to highlight a player and a button to view the radar in a fullscreen dialog."""
-    unique_key = uuid.uuid4().hex
+    unique_key = fig.layout.title.text.replace(" ", "_").replace(":", "").lower()
     
     if st.button("👁️ View Fullscreen", key=f"fullscreen_{unique_key}"):
         with st.dialog(f"Fullscreen Radar: {fig.layout.title.text}", animated=True):
