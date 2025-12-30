@@ -51,6 +51,8 @@ if 'matches' not in st.session_state:
     st.session_state.matches = None
 if 'unknown_age_count' not in st.session_state:
     st.session_state.unknown_age_count = 0
+if 'analysis_pos' not in st.session_state:
+    st.session_state.analysis_pos = None
 
 # --- 3. CORE & POSITIONAL CONFIGURATIONS ---
 import os
@@ -1018,6 +1020,7 @@ with scouting_tab:
             st.session_state.radar_players = []
 
             config = POSITIONAL_CONFIGS[selected_pos]
+            st.session_state.analysis_pos = selected_pos
             archetypes = config["archetypes"]
 
             target_pos_group = target_player['position_group']
@@ -1085,7 +1088,12 @@ with scouting_tab:
                 with col1:
                     st.dataframe(st.session_state.dna_df.reset_index(drop=True), hide_index=True)
                 with col2:
-                    st.write(f"**Description**: {POSITIONAL_CONFIGS[selected_pos]['archetypes'][st.session_state.detected_archetype]['description']}")
+                    analysis_pos = st.session_state.get("analysis_pos", selected_pos)
+                    pos_cfg = POSITIONAL_CONFIGS.get(analysis_pos, {})
+                    archetypes_cfg = pos_cfg.get("archetypes", {})
+                    arch_cfg = archetypes_cfg.get(st.session_state.detected_archetype)
+                    desc = arch_cfg.get("description") if arch_cfg else "Description not found for this archetype under the selected position set."
+                    st.write(f"**Description**: {desc}")
 
                 st.subheader(f"Top 10 Matches ({search_mode})")
                 if st.session_state.matches is not None and not st.session_state.matches.empty:
