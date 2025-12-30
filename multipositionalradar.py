@@ -98,7 +98,7 @@ COMPETITION_SEASONS = {
     1865: [318]
 }
 
-DOMESTIC_LEAGUE_IDS = [4, 5, 65, 1385, 166]
+DOMESTIC_LEAGUE_IDS = [4, 5, 51, 65, 1385, 166]
 SCOTTISH_LEAGUE_IDS = [51]
 
 # Archetype definitions
@@ -785,10 +785,19 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
     if pool_df.empty:
         return pd.DataFrame()
 
-    target_vector = target_player[z_metrics].fillna(0).values.reshape(1, -1)
-    pool_matrix = pool_df[z_metrics].fillna(0).values
+    # Filter to available metrics
+    available_z_metrics = [m for m in z_metrics if m in pool_df.columns and m in target_player.index]
+    if not available_z_metrics:
+        return pd.DataFrame()
     
-    weights = np.full(len(z_metrics), key_weight)
+    omitted_count = len(z_metrics) - len(available_z_metrics)
+    if omitted_count > 0:
+        st.warning(f"Some metrics omitted from similarity calculation: {omitted_count} out of {len(z_metrics)} metrics not available.")
+
+    target_vector = target_player[available_z_metrics].fillna(0).values.reshape(1, -1)
+    pool_matrix = pool_df[available_z_metrics].fillna(0).values
+    
+    weights = np.full(len(available_z_metrics), key_weight)
     target_vector_w = target_vector * weights
     pool_matrix_w = pool_matrix * weights
     
@@ -797,7 +806,11 @@ def find_matches(target_player, pool_df, archetype_config, search_mode='similar'
     
     if search_mode == 'upgrade':
         pct_metrics = [f'{m}_pct' for m in key_identity_metrics]
-        pool_df['upgrade_score'] = pool_df[pct_metrics].mean(axis=1)
+        available_pct_metrics = [m for m in pct_metrics if m in pool_df.columns]
+        if available_pct_metrics:
+            pool_df['upgrade_score'] = pool_df[available_pct_metrics].mean(axis=1)
+        else:
+            pool_df['upgrade_score'] = 0
         return pool_df.sort_values('upgrade_score', ascending=False)
     else:
         return pool_df.sort_values('similarity_score', ascending=False)
@@ -889,7 +902,7 @@ def render_plotly_with_legend_hover(fig, metrics, height=520, player_names=None)
     unique_key = fig.layout.title.text.replace(" ", "_").replace(":", "").lower()
     
     if st.button("👁️ View Fullscreen", key=f"fullscreen_{unique_key}"):
-        with st.dialog(f"Fullscreen Radar: {fig.layout.title.text}", animated=True):
+        with st.dialog(f"Fullscreen Radar: {fig.layout.title.text}"):
             dialog_fig = go.Figure(fig)
             dialog_fig.update_layout(height=700, title_font_size=24, legend_font_size=14)
             st.plotly_chart(dialog_fig, use_container_width=True)
