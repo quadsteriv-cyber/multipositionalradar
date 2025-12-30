@@ -51,9 +51,15 @@ if 'matches' not in st.session_state:
     st.session_state.matches = None
 
 # --- 3. CORE & POSITIONAL CONFIGURATIONS ---
+import os
+import streamlit as st
 
-USERNAME = "quadsteriv@gmail.com"
-PASSWORD = "SfORY1xR"
+USERNAME = os.getenv("STATSBOMB_USERNAME")
+PASSWORD = os.getenv("STATSBOMB_PASSWORD")
+
+if not USERNAME or not PASSWORD:
+    st.error("StatsBomb credentials not found. Check Codespaces secrets.")
+    st.stop()
 
 LEAGUE_NAMES = {
     4: "League One", 5: "League Two", 51: "Premiership", 65: "National League",
